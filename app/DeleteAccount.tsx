@@ -8,16 +8,17 @@ import {
   Alert,
 } from 'react-native';
 import { router, useNavigation } from 'expo-router';
-import { getAuth, signInWithEmailAndPassword, deleteUser } from 'firebase/auth';
+import { signInWithEmailAndPassword, deleteUser } from 'firebase/auth';
+import { auth } from '../firebaseConfig.js';
 
 export default function DeleteAccount() {
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
-  const auth = getAuth();
 
   useNavigation().setOptions({ headerShown: false }); // Hides the header
 
   const handleDeleteAccount = () => {
+    if (!auth) return;
     signInWithEmailAndPassword(auth, email, password)
       .then((userCredential) => {
         const user = userCredential.user;

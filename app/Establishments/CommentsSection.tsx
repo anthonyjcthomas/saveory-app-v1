@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, FlatList, StyleSheet, Linking } from 'react-native';
-import { db } from '../../firebaseConfig'; // Ensure this path is correct
+import { auth, db } from '../../firebaseConfig.js';
 import { deleteDoc, collection, addDoc, query, where, onSnapshot, doc, getDoc, serverTimestamp } from 'firebase/firestore';
-import { getAuth } from 'firebase/auth'; // Import auth
 
 const CommentsSection = ({ establishmentId }) => {
     const [comments, setComments] = useState([]);
@@ -11,8 +10,7 @@ const CommentsSection = ({ establishmentId }) => {
 
     // Fetch user and their username
     useEffect(() => {
-        const auth = getAuth();
-        const user = auth.currentUser;
+        const user = auth?.currentUser ?? null;
         if (user) {
             const userRef = doc(db, 'users', user.uid);
             getDoc(userRef).then((docSnap) => {
@@ -50,8 +48,7 @@ const CommentsSection = ({ establishmentId }) => {
     };
     
     const handleAddComment = async () => {
-        const auth = getAuth();
-        const user = auth.currentUser;
+        const user = auth?.currentUser ?? null;
         
         if (newComment.trim() && user) {
             try {
@@ -100,7 +97,7 @@ const CommentsSection = ({ establishmentId }) => {
                         </View>
                         <View style={styles.commentFooter}>
                             <Text style={styles.timestamp}>{formatTimestamp(item.timestamp)}</Text>
-                            {item.userId === getAuth().currentUser?.uid ? (
+                            {item.userId === auth?.currentUser?.uid ? (
                                 <TouchableOpacity onPress={() => handleDeleteComment(item.id)}>
                                     <Text style={styles.deleteButton}>Delete</Text>
                                 </TouchableOpacity>

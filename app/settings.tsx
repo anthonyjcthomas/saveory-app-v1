@@ -14,19 +14,18 @@ import {
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import {
-  getAuth,
   signOut,
   EmailAuthProvider,
   reauthenticateWithCredential,
   updatePassword,
   sendPasswordResetEmail,
 } from 'firebase/auth';
+import { auth } from '@/firebaseConfig.js';
 import { SCREEN_BACKGROUND, BRAND_GREEN } from '@/constants/theme';
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const auth = getAuth();
-  const user = auth.currentUser;
+  const user = auth?.currentUser ?? null;
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -48,6 +47,7 @@ export default function SettingsScreen() {
   };
 
   const handleSignOut = () => {
+    if (!auth) return;
     signOut(auth)
       .then(() => router.replace('/landing'))
       .catch(() => Alert.alert('Error', 'Could not sign out.'));
@@ -59,6 +59,7 @@ export default function SettingsScreen() {
       Alert.alert('Not available', 'Guest accounts cannot use email reset.');
       return;
     }
+    if (!auth) return;
     sendPasswordResetEmail(auth, email)
       .then(() =>
         Alert.alert(
@@ -124,7 +125,6 @@ export default function SettingsScreen() {
           headerStyle: { backgroundColor: SCREEN_BACKGROUND },
           headerTintColor: BRAND_GREEN,
           headerShadowVisible: false,
-          headerBackTitleVisible: false,
         }}
       />
       <KeyboardAvoidingView

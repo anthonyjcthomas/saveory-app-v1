@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { StyleSheet, TextInput, TouchableOpacity, Alert, View, Text, KeyboardAvoidingView, TouchableWithoutFeedback, Keyboard, Platform, ScrollView } from 'react-native';
-import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
 import { setDoc, doc } from 'firebase/firestore';
-import { db } from '@/firebaseConfig.js';
+import { auth, db } from '@/firebaseConfig.js';
 import { router } from 'expo-router';
 
 export default function RegisterScreen() {
@@ -11,7 +11,7 @@ export default function RegisterScreen() {
   const [username, setUsername] = useState('');
 
   const handleRegister = async () => {
-    const auth = getAuth();
+    if (!auth || !db) return;
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;

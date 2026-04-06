@@ -1,5 +1,6 @@
 import { StyleSheet, TextInput, TouchableOpacity, Alert, KeyboardAvoidingView, TouchableWithoutFeedback, Keyboard, Platform, ScrollView } from "react-native";
-import { getAuth, signInWithEmailAndPassword, signInAnonymously, sendPasswordResetEmail } from "firebase/auth";
+import { signInWithEmailAndPassword, signInAnonymously, sendPasswordResetEmail } from "firebase/auth";
+import { auth } from "../firebaseConfig.js";
 import { Text, View } from "@/components/Themed";
 import { useState } from "react";
 import { router } from "expo-router";
@@ -10,7 +11,8 @@ export default function LoginScreen() {
   const [password, setPassword] = useState<string>("");
 
   const handleLogin = () => {
-    signInWithEmailAndPassword(getAuth(), email, password)
+    if (!auth) return;
+    signInWithEmailAndPassword(auth, email, password)
       .then((user) => {
         if (user) router.replace("/(tabs)");
       })
@@ -24,7 +26,8 @@ export default function LoginScreen() {
   };
 
   const handleGuestLogin = () => {
-    signInAnonymously(getAuth())
+    if (!auth) return;
+    signInAnonymously(auth)
       .then(() => {
         router.replace("/(tabs)");
       })
@@ -42,7 +45,8 @@ export default function LoginScreen() {
       );
       return;
     }
-    sendPasswordResetEmail(getAuth(), trimmed)
+    if (!auth) return;
+    sendPasswordResetEmail(auth, trimmed)
       .then(() =>
         Alert.alert(
           "Check your email",

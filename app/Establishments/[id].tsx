@@ -2,9 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, View, Image, Text, TouchableOpacity, Linking, Dimensions, Alert, ScrollView, ActivityIndicator, Share } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Feather, FontAwesome5, Ionicons } from "@expo/vector-icons";
-import { getAuth } from "firebase/auth";
 import { doc, getDoc, query, collection, where, getDocs } from "firebase/firestore";
-import { db, trackEvent } from '../../firebaseConfig.js';
+import { auth, db, trackEvent } from '../../firebaseConfig.js';
 import { EstablishmentType } from '@/types/establishmentType';
 import CommentsSection from './CommentsSection';
 
@@ -17,8 +16,7 @@ const EstablishmentDetails: React.FC = () => {
     const [establishment, setEstablishment] = useState<EstablishmentType | null>(null);
     const [loading, setLoading] = useState(true);
     const startTimeRef = useRef<number | null>(null);
-    const auth = getAuth();
-    const user = auth.currentUser;
+    const user = auth?.currentUser ?? null;
 
     // Fetch establishment details from Firestore
     const fetchEstablishment = async () => {

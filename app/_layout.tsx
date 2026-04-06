@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, ActivityIndicator, Text } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { ThemeProvider, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { useColorScheme } from '@/components/useColorScheme';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { BookmarksProvider } from '@/components/BookmarksContext';
-import { auth } from '../firebaseConfig.js';
+import { auth, isFirebaseReady, firebaseInitError } from '../firebaseConfig.js';
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
@@ -18,6 +18,10 @@ export default function RootLayout() {
   // Never put `router` in the dependency array — its reference changes on
   // every navigation, which would re-subscribe and create an infinite loop.
   useEffect(() => {
+    if (!isFirebaseReady() || !auth) {
+      setLoading(false);
+      return;
+    }
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setLoading(false);
@@ -46,6 +50,24 @@ export default function RootLayout() {
     }
     // Otherwise: user is authenticated and on a valid app screen — do nothing.
   }, [user, loading, segments]);
+
+  if (!isFirebaseReady()) {
+    return (
+      <View style={{ flex: 1, padding: 24, justifyContent: 'center', backgroundColor: '#f5f5f5' }}>
+        <Text style={{ fontSize: 18, fontWeight: '600', color: '#264117', marginBottom: 12 }}>
+          {"Can't start Saveory"}
+        </Text>
+        <Text style={{ fontSize: 16, color: '#444', lineHeight: 22 }}>
+          The app is missing server configuration. This build needs Firebase environment variables set in
+          EAS before building. If you see this in TestFlight, ask the developer to add EXPO_PUBLIC_FIREBASE_*
+          in the Expo dashboard and upload a new build.
+        </Text>
+        {firebaseInitError ? (
+          <Text style={{ marginTop: 16, fontSize: 13, color: '#666' }}>{firebaseInitError}</Text>
+        ) : null}
+      </View>
+    );
+  }
 
   if (loading) {
     return (

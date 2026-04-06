@@ -13,46 +13,75 @@ const firebaseConfig = {
   measurementId: process.env.EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID,
 };
 
-// Initialize Firebase app (guard against double-init in HMR / dev)
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-
 /**
- * Auth persistence:
- * - Web + static export (Vercel / Node): use default browser persistence via getAuth — never
- *   import AsyncStorage at load time (RN persistence breaks expo export SSR).
- * - iOS/Android: AsyncStorage so sessions survive app restarts.
+ * EAS production builds do not read `.env.local` — env must be set in Expo (EAS) project settings
+ * or the build profile. Missing values leave `initializeApp` invalid and caused startup crashes on TestFlight.
  */
-/** @type {import('firebase/auth').Auth} */
-let auth;
-if (Platform.OS === 'web') {
-  auth = getAuth(app);
-} else {
+function hasRequiredFirebaseEnv() {
+  return (
+    typeof firebaseConfig.apiKey === 'string' &&
+    firebaseConfig.apiKey.length > 0 &&
+    typeof firebaseConfig.projectId === 'string' &&
+    firebaseConfig.projectId.length > 0 &&
+    typeof firebaseConfig.appId === 'string' &&
+    firebaseConfig.appId.length > 0
+  );
+}
+
+/** @param {import('firebase/app').FirebaseApp} appInstance */
+function createAuthForApp(appInstance) {
+  if (Platform.OS === 'web') {
+    return getAuth(appInstance);
+  }
   const AsyncStorage = require('@react-native-async-storage/async-storage').default;
   try {
-    auth = initializeAuth(app, {
+    return initializeAuth(appInstance, {
       persistence: getReactNativePersistence(AsyncStorage),
     });
   } catch {
-    auth = getAuth(app);
+    return getAuth(appInstance);
   }
 }
 
-const db = getFirestore(app);
+/** @type {import('firebase/app').FirebaseApp | null} */
+let app = null;
+/** @type {import('firebase/auth').Auth | null} */
+let auth = null;
+/** @type {import('firebase/firestore').Firestore | null} */
+let db = null;
+/** @type {string | null} */
+export let firebaseInitError = null;
 
-// Analytics — only available in environments that support it (native, web).
-// Initialized asynchronously; trackEvent() safely no-ops if not yet ready.
 let _analytics = null;
-isSupported()
-  .then((supported) => {
-    if (supported) _analytics = getAnalytics(app);
-  })
-  .catch(() => {});
+
+if (hasRequiredFirebaseEnv()) {
+  try {
+    app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+    auth = createAuthForApp(app);
+    db = getFirestore(app);
+
+    isSupported()
+      .then((supported) => {
+        if (supported && app) _analytics = getAnalytics(app);
+      })
+      .catch(() => {});
+  } catch (e) {
+    firebaseInitError = e instanceof Error ? e.message : String(e);
+    console.error('[Saveory] Firebase initialization failed:', e);
+  }
+} else {
+  firebaseInitError =
+    'Missing EXPO_PUBLIC_FIREBASE_* variables. Add them in EAS (Expo dashboard → Environment variables) for production builds, then rebuild.';
+  console.error('[Saveory]', firebaseInitError);
+}
+
+export function isFirebaseReady() {
+  return app != null && auth != null && db != null;
+}
 
 /**
- * Log a Firebase Analytics event. Preserves the same event names that were
- * previously sent to Amplitude so historical naming stays consistent.
- * Safe to call before analytics finishes initializing — events are silently
- * dropped rather than throwing.
+ * Log a Firebase Analytics event.
+ * Safe to call before analytics finishes initializing — events are silently dropped.
  */
 export const trackEvent = (eventName, params = {}) => {
   if (_analytics) {

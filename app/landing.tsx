@@ -8,14 +8,15 @@ import {
   Alert,
 } from 'react-native';
 import { router } from 'expo-router';
-import { getAuth, signInWithEmailAndPassword, signInAnonymously, sendPasswordResetEmail } from 'firebase/auth';
+import { signInWithEmailAndPassword, signInAnonymously, sendPasswordResetEmail } from 'firebase/auth';
+import { auth } from '../firebaseConfig.js';
 
 export default function Landing() {
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
-  const auth = getAuth();
 
   const handleLogin = () => {
+    if (!auth) return;
     signInWithEmailAndPassword(auth, email, password)
       .then((userCredential) => {
         // Login successful
@@ -27,6 +28,7 @@ export default function Landing() {
   };
 
   const handleGuestLogin = () => {
+    if (!auth) return;
     signInAnonymously(auth)
       .then(() => {
         router.replace('/(tabs)');
@@ -37,6 +39,7 @@ export default function Landing() {
   };
 
   const handleForgotPassword = () => {
+    if (!auth) return;
     const trimmed = email.trim();
     if (!trimmed) {
       Alert.alert(
