@@ -256,7 +256,7 @@ export default function SearchPageWeb() {
 
       <View style={[styles.screen, { backgroundColor: SCREEN_BACKGROUND }]}>
         <View style={[styles.content, { maxWidth: contentMaxWidth, width: '100%' }]}>
-          <Text style={styles.heroTitle}>Find food.</Text>
+          <Text style={styles.heroTitle}>Find Food.</Text>
 
           <View style={styles.searchCard}>
             <Ionicons name="search" size={20} color="#6b7280" style={styles.searchIcon} />

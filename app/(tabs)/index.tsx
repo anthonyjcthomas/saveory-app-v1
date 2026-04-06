@@ -229,7 +229,7 @@ const Live = () => {
             />
 
             <View style={styles.container}>
-                <Text style={styles.taglineTxt}>Deals. Near you. Right now.</Text>
+                <Text style={styles.taglineTxt}>Deals. Near You. Right now.</Text>
 
                 {/* Categories Component */}
                 <Categories onCategoryChanged={setCategory} />

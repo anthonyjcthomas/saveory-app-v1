@@ -337,7 +337,7 @@ const SearchPage = () => {
                 }}
             />
             <View style={styles.container}>
-                <Text style={styles.heroTitle}>Find food.</Text>
+                <Text style={styles.heroTitle}>Find Food.</Text>
                 <View style={styles.mapWrap}>
                     <MapView
                         ref={mapRef}
