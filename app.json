@@ -27,10 +27,15 @@
       }
     },
     "android": {
+      "package": "com.anthonyjcthomas.saveory",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -39,7 +44,14 @@
     },
     "plugins": [
       "expo-router",
-      "expo-tracking-transparency"
+      "expo-tracking-transparency",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow Saveory to use your location to show nearby deals and the map.",
+          "locationWhenInUsePermission": "Allow Saveory to use your location to show nearby deals and the map."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

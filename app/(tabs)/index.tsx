@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View, Image, FlatList, TouchableOpacity, Linking, Alert, ActivityIndicator } from 'react-native';
 import { Stack, Link } from 'expo-router';
 import { TabHeaderLogo } from '@/components/TabHeaderLogo';
@@ -8,8 +8,9 @@ import moment from 'moment-timezone';
 import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import { EstablishmentType, HappyHourDeal } from '@/types/establishmentType';
 import Categories from "@/components/Categories";
-import * as Location from 'expo-location';
 import { db, trackEvent } from '../../firebaseConfig.js';
+import { getCurrentPositionOrFallback } from '@/lib/location';
+import { distanceKm, kmToMiles } from '@/lib/haversine';
 import { collection, getDocs } from 'firebase/firestore';
 
 const Live = () => {
@@ -37,40 +38,24 @@ const Live = () => {
         }
     };
 
-    // Calculate distance between two coordinates using Haversine formula
-    const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-        const toRad = (value: number) => (value * Math.PI) / 180;
-        const R = 6371; // Radius of the Earth in kilometers
-        const dLat = toRad(lat2 - lat1);
-        const dLon = toRad(lon2 - lon1);
-        const a =
-            Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-            Math.cos(toRad(lat1)) *
-            Math.cos(toRad(lat2)) *
-            Math.sin(dLon / 2) *
-            Math.sin(dLon / 2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        const distance = R * c; // Distance in kilometers
-        return distance;
-    };
-
     // Automatically sort by distance after fetching establishments and getting user location
     const fetchAndSortEstablishmentsByDistance = async () => {
         setLoading(true); // Show loading indicator
         try {
-            let { status } = await Location.requestForegroundPermissionsAsync();
-            if (status !== 'granted') {
-                Alert.alert("Location Permission Denied", "Please allow location access to sort establishments by proximity.");
+            const [location, establishments] = await Promise.all([
+                getCurrentPositionOrFallback(),
+                fetchEstablishments(),
+            ]);
+            if (!location) {
+                Alert.alert(
+                    "Location unavailable",
+                    "Allow location access for Saveory and turn on Location in system settings to sort by distance."
+                );
                 setLoading(false);
                 return;
             }
-
-            const location = await Location.getCurrentPositionAsync({});
             const userLatitude = location.coords.latitude;
             const userLongitude = location.coords.longitude;
-
-            // Fetch establishments and calculate distance for each establishment
-            const establishments = await fetchEstablishments();
             const sortedEstablishments = establishments
                 .map(establishment => {
                     const latitude = typeof establishment.latitude === 'string' ? parseFloat(establishment.latitude) : establishment.latitude;
@@ -81,7 +66,7 @@ const Live = () => {
                         return { ...establishment, distance: Infinity }; // Assign a large distance if invalid
                     }
 
-                    const distance = calculateDistance(userLatitude, userLongitude, latitude, longitude);
+                    const distance = distanceKm(userLatitude, userLongitude, latitude, longitude);
                     return { ...establishment, distance };
                 })
                 .sort((a, b) => (a.distance || Infinity) - (b.distance || Infinity));
@@ -96,8 +81,7 @@ const Live = () => {
     };
 
     // Filter by selected category + deals active right now (Chicago time)
-    const filterActiveDeals = useCallback((establishments: EstablishmentType[]) => {
-        const now = moment.tz('America/Chicago');
+    const filterActiveDeals = useCallback((establishments: EstablishmentType[], now: moment.Moment) => {
         const currentDay = now.format('dddd');
         const currentTime = now.format('HH:mm');
 
@@ -142,6 +126,8 @@ const Live = () => {
         initialize();
     }, []);
 
+    const chicagoNowRef = useRef(moment.tz('America/Chicago'));
+
     // Re-apply time + category filter whenever category or the sorted source list changes.
     // useLayoutEffect avoids one frame where loading is done but the list is still empty.
     useLayoutEffect(() => {
@@ -149,11 +135,11 @@ const Live = () => {
             setLiveEstablishments([]);
             return;
         }
-        filterActiveDeals(establishmentsWithDistance);
+        filterActiveDeals(establishmentsWithDistance, moment.tz('America/Chicago'));
     }, [category, establishmentsWithDistance, filterActiveDeals]);
 
     // Function to open maps for directions
-    const openMaps = (location: string, name: string) => {
+    const openMaps = useCallback((location: string, name: string) => {
         const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(name + ', ' + location)}`;
         Linking.openURL(url).catch(err => {
             console.error("Error opening maps:", err);
@@ -162,11 +148,11 @@ const Live = () => {
         trackEvent('click_open_maps', {
             establishment_name: name,
         });
-    };
+    }, []);
 
-    // Render individual establishment item
-    const renderEstablishment = ({ item }: { item: EstablishmentType }) => {
-        const now = moment.tz('America/Chicago');
+    // Render individual establishment item (one Chicago "now" per screen render via ref — avoids N× moment() in FlatList)
+    const renderEstablishment = useCallback(({ item }: { item: EstablishmentType }) => {
+        const now = chicagoNowRef.current;
         const currentDay = now.format('dddd');
         const currentTime = now.format('HH:mm');
 
@@ -193,7 +179,7 @@ const Live = () => {
 
         // Display the distance if available
         const distanceText = item.distance !== undefined && item.distance !== null && isFinite(item.distance)
-            ? `${(item.distance * 0.621371).toFixed(2)} miles away` // Convert km to miles
+            ? `${kmToMiles(item.distance).toFixed(2)} miles away`
             : '';
 
         return (
@@ -222,7 +208,9 @@ const Live = () => {
                 </TouchableOpacity>
             </Link>
         );
-    };
+    }, [openMaps]);
+
+    chicagoNowRef.current = moment.tz('America/Chicago');
 
     return (
         <>
@@ -261,6 +249,10 @@ const Live = () => {
                         renderItem={renderEstablishment}
                         contentContainerStyle={styles.list}
                         showsVerticalScrollIndicator={false}
+                        initialNumToRender={8}
+                        maxToRenderPerBatch={10}
+                        windowSize={5}
+                        removeClippedSubviews
                     />
                 ) : (
                     !loading && <Text style={styles.noDealsText}>No Live Deals Deals at the moment.</Text>

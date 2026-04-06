@@ -2,6 +2,7 @@ import { FlatList, StyleSheet, Text, TouchableOpacity, View, Image, ListRenderIt
 import React, { useEffect, useState } from 'react';
 import * as Location from 'expo-location';
 import { FontAwesome5, Ionicons } from "@expo/vector-icons";
+import { getCurrentPositionOrFallback } from '@/lib/location';
 import { EstablishmentType } from '@/types/establishmentType';
 import { Link } from "expo-router";
 
@@ -26,14 +27,10 @@ const Establishments = ({ establishments, dotw }: Props) => {
 
     useEffect(() => {
         (async () => {
-            let { status } = await Location.requestForegroundPermissionsAsync();
-            if (status !== 'granted') {
-                console.log('Permission to access location was denied');
-                return;
+            const location = await getCurrentPositionOrFallback();
+            if (location) {
+                setUserLocation(location);
             }
-
-            let location = await Location.getCurrentPositionAsync({});
-            setUserLocation(location);
         })();
     }, []);
 

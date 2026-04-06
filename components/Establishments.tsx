@@ -1,14 +1,16 @@
 import { collection, getDocs } from "firebase/firestore";
 import { db, trackEvent } from '../firebaseConfig.js';
 import { FlatList, StyleSheet, Text, TouchableOpacity, View, Image, ListRenderItem, Dimensions, ActivityIndicator } from "react-native";
-import React, { useEffect, useState } from 'react';
-import * as Location from 'expo-location';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FontAwesome5, Ionicons } from "@expo/vector-icons";
+import { getCurrentPositionOrFallback } from '@/lib/location';
+import type { LocationObject } from 'expo-location';
+import { distanceKm } from '@/lib/haversine';
 import { EstablishmentType } from '@/types/establishmentType';
 import { Link } from "expo-router";
 import { useBookmarks } from '@/components/BookmarksContext';
 import moment from 'moment';
-import { requestTrackingPermissionsAsync } from 'expo-tracking-transparency';
+import { requestTrackingPermissionsAsync } from '@/lib/trackingTransparency';
 
 type Props = {
   category: string;
@@ -17,25 +19,10 @@ type Props = {
   sortedByDistance: boolean;
 };
 
-const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-  const toRad = (value: number) => (value * Math.PI) / 180;
-  const R = 6371; // Radius of the Earth in kilometers
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  const distance = R * c; // Distance in kilometers
-  return distance;
-};
-
 const Establishments = ({ category, dotw, selectedHour, sortedByDistance }: Props) => {
   const [loading, setLoading] = useState(true);
   const { addBookmark, removeBookmark, isBookmarked } = useBookmarks();
-  const [userLocation, setUserLocation] = useState<Location.LocationObject | null>(null);
   const [establishments, setEstablishments] = useState<EstablishmentType[]>([]);
-  const [filteredEstablishments, setFilteredEstablishments] = useState<EstablishmentType[]>([]);
 
   // Fetch data from Firestore
   const fetchEstablishments = async () => {
@@ -53,27 +40,8 @@ const Establishments = ({ category, dotw, selectedHour, sortedByDistance }: Prop
     }
   };
 
-  // Request location permission and get user location
-  const getUserLocation = async () => {
-    try {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        console.log('Permission to access location was denied');
-        return null;
-      }
-  
-      let location = await Location.getCurrentPositionAsync({});
-      console.log("User location retrieved:", location); // Add logging here to verify location data
-      setUserLocation(location);
-      return location;
-    } catch (error) {
-      console.error("Error getting user location:", error); // Add error logging
-      return null;
-    }
-  };
-
   // Calculate distances for all establishments
-  const calculateDistances = (location: Location.LocationObject, establishments: EstablishmentType[]) => {
+  const calculateDistances = (location: LocationObject, establishments: EstablishmentType[]) => {
     return establishments.map(establishment => {
       const lat = typeof establishment.latitude === 'string' ? parseFloat(establishment.latitude) : establishment.latitude;
       const lon = typeof establishment.longitude === 'string' ? parseFloat(establishment.longitude) : establishment.longitude;
@@ -83,7 +51,7 @@ const Establishments = ({ category, dotw, selectedHour, sortedByDistance }: Prop
         return { ...establishment, distance: null };
       }
 
-      const distance = calculateDistance(
+      const distance = distanceKm(
         location.coords.latitude,
         location.coords.longitude,
         lat,
@@ -93,50 +61,37 @@ const Establishments = ({ category, dotw, selectedHour, sortedByDistance }: Prop
     });
   };
 
-  // Fetch data and user location on mount
+  // Parallel: ATT prompt, Firestore, and location (independent I/O) to cut time-to-interactive.
   useEffect(() => {
     const initialize = async () => {
       try {
-        // Request tracking permission
-        const { status: trackingStatus } = await requestTrackingPermissionsAsync();
-        if (trackingStatus === 'granted') {
-          console.log('Tracking permission granted.');
-        } else {
-          console.log('Tracking permission denied or restricted.');
-        }
-  
-        setLoading(true); // Ensure loading starts before async calls
-  
-        // Fetch establishments
-        const fetchedEstablishments = await fetchEstablishments();
-  
-        // Fetch location
-        const location = await getUserLocation();
-  
+        setLoading(true);
+
+        const [, fetchedEstablishments, location] = await Promise.all([
+          requestTrackingPermissionsAsync().catch(() => ({ status: 'denied' as const })),
+          fetchEstablishments(),
+          getCurrentPositionOrFallback(),
+        ]);
+
         if (location) {
           const establishmentsWithDistance = calculateDistances(location, fetchedEstablishments);
           setEstablishments(establishmentsWithDistance);
         } else {
-          setEstablishments(fetchedEstablishments); // Use establishments without distance
+          setEstablishments(fetchedEstablishments);
         }
       } catch (error) {
-        console.error("Initialization error:", error); // Log any unexpected errors
+        console.error("Initialization error:", error);
       } finally {
-        setLoading(false); // Ensure loading is stopped in both success and failure cases
+        setLoading(false);
       }
     };
-  
+
     initialize();
   }, []);
 
-
-  useEffect(() => {
+  const filteredEstablishments = useMemo(() => {
     let updatedEstablishments = [...establishments];
 
-    /**
-     * normalizeDropdownTime — converts the 12-hour AM/PM strings from the
-     * dropdown UI (e.g. "5:00 PM", "12:00 AM") into 24-hour "HH:mm" strings.
-     */
     const normalizeDropdownTime = (time: string): string => {
       if (time === "12:00 AM") return "00:00";
       return moment(time, 'h:mm A').format('HH:mm');
@@ -151,7 +106,6 @@ const Establishments = ({ category, dotw, selectedHour, sortedByDistance }: Prop
     }
 
     if (dotw !== "Select Day" && selectedHour !== "Select Hour") {
-      // The selected hour comes from the dropdown in 12-hour format — normalize it.
       const selectedTimeMoment = moment(normalizeDropdownTime(selectedHour), 'HH:mm');
 
       updatedEstablishments = updatedEstablishments.filter(establishment =>
@@ -159,13 +113,11 @@ const Establishments = ({ category, dotw, selectedHour, sortedByDistance }: Prop
           const dayMatch = deal.deal_list.includes(dotw);
           if (!dayMatch) return false;
 
-          // Firestore stores start_time/end_time in 24-hour "HH:mm" format — parse directly.
           const startTimeMoment = moment(deal.start_time, 'HH:mm', true);
           let endTimeMoment = moment(deal.end_time, 'HH:mm', true);
 
           if (!startTimeMoment.isValid() || !endTimeMoment.isValid()) return false;
 
-          // Handle deals that span midnight (e.g. 22:00 → 02:00)
           if (endTimeMoment.isBefore(startTimeMoment)) {
             endTimeMoment.add(1, 'day');
           }
@@ -181,10 +133,10 @@ const Establishments = ({ category, dotw, selectedHour, sortedByDistance }: Prop
       );
     }
 
-    setFilteredEstablishments(updatedEstablishments);
+    return updatedEstablishments;
   }, [category, dotw, selectedHour, establishments, sortedByDistance]);
   
-  const handleBookmark = (establishment: EstablishmentType) => {
+  const handleBookmark = useCallback((establishment: EstablishmentType) => {
     if (isBookmarked(establishment.id)) {
       removeBookmark(establishment.id);
     } else {
@@ -194,9 +146,9 @@ const Establishments = ({ category, dotw, selectedHour, sortedByDistance }: Prop
         establishment_name: establishment.name,
       });
     }
-  };
+  }, [addBookmark, removeBookmark, isBookmarked]);
 
-  const renderItems: ListRenderItem<EstablishmentType> = ({ item }) => {
+  const renderItems: ListRenderItem<EstablishmentType> = useCallback(({ item }) => {
     const distanceText = item.distance != null ? `${item.distance} miles away` : 'Calculating Distance...';
 
     return (
@@ -243,7 +195,7 @@ const Establishments = ({ category, dotw, selectedHour, sortedByDistance }: Prop
         </TouchableOpacity>
       </Link>
     );
-  };
+  }, [handleBookmark, isBookmarked]);
 
   if (loading) {
     return (
@@ -264,6 +216,10 @@ const Establishments = ({ category, dotw, selectedHour, sortedByDistance }: Prop
         keyExtractor={(item) => item.id.toString()}
         contentContainerStyle={filteredEstablishments.length === 0 && styles.emptyContainer}
         ListEmptyComponent={<Text style={styles.emptyText}>No establishments found.</Text>}
+        initialNumToRender={8}
+        maxToRenderPerBatch={12}
+        windowSize={5}
+        removeClippedSubviews
       />
     </View>
   );

@@ -3,7 +3,7 @@ import { StyleSheet, View, Image, Text, TouchableOpacity, Linking, Dimensions, A
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Feather, FontAwesome5, Ionicons } from "@expo/vector-icons";
 import { getAuth } from "firebase/auth";
-import { query, collection, where, getDocs } from "firebase/firestore";
+import { doc, getDoc, query, collection, where, getDocs } from "firebase/firestore";
 import { db, trackEvent } from '../../firebaseConfig.js';
 import { EstablishmentType } from '@/types/establishmentType';
 import CommentsSection from './CommentsSection';
@@ -30,27 +30,39 @@ const EstablishmentDetails: React.FC = () => {
         }
 
         try {
-            const establishmentsRef = collection(db, "establishments");
-            const q = query(establishmentsRef, where("id", "==", id));
-            const querySnapshot = await getDocs(q);
+            const docRef = doc(db, "establishments", id);
+            const docSnap = await getDoc(docRef);
 
-            if (!querySnapshot.empty) {
-                const establishmentData = querySnapshot.docs[0].data();
-                const establishmentId = querySnapshot.docs[0].id;
+            if (docSnap.exists()) {
+                const establishmentData = docSnap.data();
+                const establishmentId = docSnap.id;
 
                 setEstablishment({ ...establishmentData, id: establishmentId } as EstablishmentType);
 
                 console.log("Establishment fetched:", establishmentData.name);
 
-                // Track view event after fetching
                 trackEvent('view_establishment', {
                     establishment_id: establishmentId,
                     establishment_name: establishmentData.name,
                 });
             } else {
-                Alert.alert("Error", "Establishment not found.");
-                setEstablishment(null);
-                router.back();
+                const establishmentsRef = collection(db, "establishments");
+                const legacyQ = query(establishmentsRef, where("id", "==", id));
+                const legacySnap = await getDocs(legacyQ);
+
+                if (!legacySnap.empty) {
+                    const establishmentData = legacySnap.docs[0].data();
+                    const establishmentId = legacySnap.docs[0].id;
+                    setEstablishment({ ...establishmentData, id: establishmentId } as EstablishmentType);
+                    trackEvent('view_establishment', {
+                        establishment_id: establishmentId,
+                        establishment_name: establishmentData.name,
+                    });
+                } else {
+                    Alert.alert("Error", "Establishment not found.");
+                    setEstablishment(null);
+                    router.back();
+                }
             }
         } catch (error) {
             console.error("Error fetching establishment details:", error);

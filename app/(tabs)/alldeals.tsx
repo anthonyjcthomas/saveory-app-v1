@@ -8,7 +8,8 @@ import { TabHeaderLogo } from '@/components/TabHeaderLogo';
 import { HEADING_HERO_TEXT, SCREEN_BACKGROUND } from '@/constants/theme';
 import { SettingsHeaderButton } from '@/components/SettingsHeaderButton';
 import { FontAwesome5 } from "@expo/vector-icons";
-import * as Location from 'expo-location'; // Import location permissions and fetching
+import type { LocationObjectCoords } from 'expo-location';
+import { getCurrentPositionOrFallback } from '@/lib/location';
 
 const availableHours = [
   "9:00 AM", "10:00 AM", "11:00 AM", "12:00 PM",
@@ -24,7 +25,7 @@ const Page = () => {
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [loading, setLoading] = useState(false);
   const [sortedByDistance, setSortedByDistance] = useState(true); // Set initial state to true to sort automatically by distance
-  const [userLocation, setUserLocation] = useState(null); // Store user location
+  const [userLocation, setUserLocation] = useState<LocationObjectCoords | null>(null);
 
   const availableDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
@@ -32,13 +33,15 @@ const Page = () => {
   useEffect(() => {
     const getLocation = async () => {
       try {
-        let { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') {
-          Alert.alert("Location Permission Denied", "Please allow location access to sort establishments by proximity.");
+        const location = await getCurrentPositionOrFallback();
+        if (!location) {
+          Alert.alert(
+            "Location unavailable",
+            "Allow location access for Saveory and turn on Location in system settings to sort by distance."
+          );
           return;
         }
-        const location = await Location.getCurrentPositionAsync({});
-        setUserLocation(location.coords); // Store user location (latitude and longitude)
+        setUserLocation(location.coords);
       } catch (error) {
         console.error("Error fetching location:", error);
         Alert.alert("Error", "Failed to fetch location.");

@@ -1,15 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, View, Text, FlatList, TouchableOpacity, Image, Dimensions } from 'react-native';
 import { Stack } from 'expo-router';
 import { TabHeaderLogo } from '@/components/TabHeaderLogo';
 import { SettingsHeaderButton } from '@/components/SettingsHeaderButton';
-import { SCREEN_BACKGROUND } from '@/constants/theme';
+import { HEADING_HERO_TEXT, SCREEN_BACKGROUND } from '@/constants/theme';
 import { useBookmarks } from '@/components/BookmarksContext';
 import { EstablishmentType } from '@/types/establishmentType';
 import { FontAwesome5, Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { Link } from 'expo-router';
-import { requestTrackingPermissionsAsync } from 'expo-tracking-transparency';
+import { requestTrackingPermissionsAsync } from '@/lib/trackingTransparency';
+import { getCurrentPositionOrFallback } from '@/lib/location';
+import { distanceMiles } from '@/lib/haversine';
 
 const { width } = Dimensions.get('window');
 
@@ -18,51 +20,32 @@ const BookmarksPage: React.FC = () => {
     const [userLocation, setUserLocation] = useState<Location.LocationObject | null>(null);
 
     useEffect(() => {
+        let cancelled = false;
         (async () => {
-            // Request tracking permission (iOS ATT)
-            const { status: trackingStatus } = await requestTrackingPermissionsAsync();
-            if (trackingStatus === 'granted') {
-                console.log('Tracking permission granted.');
-            } else {
-                console.log('Tracking permission denied or restricted.');
+            const [, location] = await Promise.all([
+                requestTrackingPermissionsAsync().catch(() => ({ status: 'denied' as const })),
+                getCurrentPositionOrFallback(),
+            ]);
+            if (cancelled) return;
+            if (location) {
+                setUserLocation(location);
             }
-
-            // Request location permission
-            let { status } = await Location.requestForegroundPermissionsAsync();
-            if (status !== 'granted') {
-                console.log('Permission to access location was denied');
-                return;
-            }
-
-            let location = await Location.getCurrentPositionAsync({});
-            setUserLocation(location);
         })();
+        return () => {
+            cancelled = true;
+        };
     }, []);
 
-    const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-        const toRad = (value: number) => (value * Math.PI) / 180;
-        const R = 6371; // Radius of the Earth in kilometers
-        const dLat = toRad(lat2 - lat1);
-        const dLon = toRad(lon1 - lon2);
-        const a =
-            Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
-            Math.sin(dLon / 2) * Math.sin(dLon / 2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        const distance = R * c; // Distance in kilometers
-        return distance;
-    };
-
-    const renderItems = ({ item }: { item: EstablishmentType }) => {
+    const renderItems = useCallback(({ item }: { item: EstablishmentType }) => {
         let distanceText = 'Calculating Distance...';
         if (userLocation) {
-            const distance = calculateDistance(
+            const miles = distanceMiles(
                 userLocation.coords.latitude,
                 userLocation.coords.longitude,
-                parseFloat(item.latitude),
-                parseFloat(item.longitude)
+                parseFloat(String(item.latitude)),
+                parseFloat(String(item.longitude))
             );
-            distanceText = `${(distance * 0.621371).toFixed(2)} miles away`; // Convert to miles
+            distanceText = `${miles.toFixed(2)} miles away`;
         }
 
         return (
@@ -107,7 +90,7 @@ const BookmarksPage: React.FC = () => {
                 </TouchableOpacity>
             </Link>
         );
-    };
+    }, [userLocation, removeBookmark]);
 
     return (
         <View style={styles.container}>
@@ -125,6 +108,7 @@ const BookmarksPage: React.FC = () => {
                 }}
             />
             <View style={styles.contentContainer}>
+                <Text style={styles.heroTitle}>Save For Later.</Text>
                 <FlatList
                     data={bookmarks}
                     renderItem={renderItems}
@@ -150,6 +134,10 @@ const styles = StyleSheet.create({
         paddingHorizontal: 10,
         paddingBottom: 10,
         flex: 1,
+    },
+    heroTitle: {
+        ...HEADING_HERO_TEXT,
+        marginBottom: 12,
     },
     row: {
         justifyContent: 'space-between',
