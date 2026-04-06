@@ -5,7 +5,7 @@ import dealCategories from '../data/dealCategories';
 
 type Props = {
   onCategoryChanged: (category: string) => void;
-  onSortByDistance: () => void; // New prop to handle nearest calculation
+  onSortByDistance?: () => void;
 };
 
 const Categories = ({ onCategoryChanged, onSortByDistance }: Props) => {

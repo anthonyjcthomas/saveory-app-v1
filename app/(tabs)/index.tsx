@@ -1,19 +1,21 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import { StyleSheet, Text, View, Image, FlatList, TouchableOpacity, Linking, Alert, ActivityIndicator } from 'react-native';
-import { Stack } from 'expo-router';
-import { useHeaderHeight } from '@react-navigation/elements';
+import { Stack, Link } from 'expo-router';
+import { TabHeaderLogo } from '@/components/TabHeaderLogo';
+import { HEADING_HERO_TEXT, SCREEN_BACKGROUND } from '@/constants/theme';
+import { SettingsHeaderButton } from '@/components/SettingsHeaderButton';
 import moment from 'moment-timezone';
 import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import { EstablishmentType, HappyHourDeal } from '@/types/establishmentType';
 import Categories from "@/components/Categories";
 import * as Location from 'expo-location';
-import { db } from '../../firebaseConfig.js'; // Adjust the path as necessary
+import { db, trackEvent } from '../../firebaseConfig.js';
 import { collection, getDocs } from 'firebase/firestore';
-import { amplitude } from '../../firebaseConfig.js';
 
 const Live = () => {
-    const headerHeight = useHeaderHeight();
     const [liveEstablishments, setLiveEstablishments] = useState<EstablishmentType[]>([]);
+    /** Full list sorted by distance; category + time filtering applied into `liveEstablishments`. */
+    const [establishmentsWithDistance, setEstablishmentsWithDistance] = useState<EstablishmentType[]>([]);
     const [category, setCategory] = useState<string>('All');
     const [loading, setLoading] = useState<boolean>(false); // Loading state for distance calculation
     const [initialLoading, setInitialLoading] = useState<boolean>(true); // Loading state for initial data fetch
@@ -84,8 +86,7 @@ const Live = () => {
                 })
                 .sort((a, b) => (a.distance || Infinity) - (b.distance || Infinity));
 
-            // Set the sorted establishments
-            setLiveEstablishments(sortedEstablishments);
+            setEstablishmentsWithDistance(sortedEstablishments);
         } catch (error) {
             console.error("Error sorting by distance:", error);
             Alert.alert("Error", "Failed to sort establishments by distance.");
@@ -94,15 +95,18 @@ const Live = () => {
         }
     };
 
-    // Filter active deals based on current time
-    const filterActiveDeals = (establishments: EstablishmentType[]) => {
+    // Filter by selected category + deals active right now (Chicago time)
+    const filterActiveDeals = useCallback((establishments: EstablishmentType[]) => {
         const now = moment.tz('America/Chicago');
         const currentDay = now.format('dddd');
         const currentTime = now.format('HH:mm');
 
         const activeDeals = establishments.filter((establishment: EstablishmentType) => {
-            const categoryMatch = category === 'All' ||
-                (Array.isArray(establishment.category) && establishment.category.includes(category));
+            const cats = establishment.category;
+            const categoryMatch =
+                category === 'All' ||
+                (Array.isArray(cats) && cats.includes(category)) ||
+                (typeof cats === 'string' && cats === category);
 
             return (
                 categoryMatch &&
@@ -125,30 +129,28 @@ const Live = () => {
         });
 
         setLiveEstablishments(activeDeals);
-    };
+    }, [category]);
 
-    // Initial data fetch and setup
+    // Load locations once; distance sort does not depend on category.
     useEffect(() => {
-        const trackEstablishmentViews = (establishments: EstablishmentType[]) => {
-            establishments.forEach(establishment => {
-                amplitude.track('view_establishment', {
-                    establishmentId: establishment.id,
-                    establishmentName: establishment.name,
-                });
-            });
-        };
-
         const initialize = async () => {
             setInitialLoading(true);
-
-            // Fetch and sort by distance automatically on load
             await fetchAndSortEstablishmentsByDistance();
-
             setInitialLoading(false);
         };
 
         initialize();
-    }, [category]);
+    }, []);
+
+    // Re-apply time + category filter whenever category or the sorted source list changes.
+    // useLayoutEffect avoids one frame where loading is done but the list is still empty.
+    useLayoutEffect(() => {
+        if (establishmentsWithDistance.length === 0) {
+            setLiveEstablishments([]);
+            return;
+        }
+        filterActiveDeals(establishmentsWithDistance);
+    }, [category, establishmentsWithDistance, filterActiveDeals]);
 
     // Function to open maps for directions
     const openMaps = (location: string, name: string) => {
@@ -157,9 +159,8 @@ const Live = () => {
             console.error("Error opening maps:", err);
             Alert.alert("Error", "Failed to open maps.");
         });
-        // Track the open maps event with Amplitude
-        amplitude.track('click_open_maps', {
-            establishmentName: name,
+        trackEvent('click_open_maps', {
+            establishment_name: name,
         });
     };
 
@@ -196,28 +197,30 @@ const Live = () => {
             : '';
 
         return (
-            <View style={styles.establishmentContainer}>
-                <Image source={{ uri: item.image }} style={styles.establishmentImage} />
-                <Text style={styles.establishmentName}>{item.name}</Text>
+            <Link href={`/Establishments/${item.id}`} asChild>
+                <TouchableOpacity style={styles.establishmentContainer} activeOpacity={0.85}>
+                    <Image source={{ uri: item.image }} style={styles.establishmentImage} />
+                    <Text style={styles.establishmentName}>{item.name}</Text>
 
-                {/* Display only the deal that is active at the current time */}
-                {currentDeals.map((deal, index) => (
-                    <Text key={index} style={styles.happyHourDetails}>{deal.details}</Text>
-                ))}
+                    {/* Display only the deal that is active at the current time */}
+                    {currentDeals.map((deal, index) => (
+                        <Text key={index} style={styles.happyHourDetails}>{deal.details}</Text>
+                    ))}
 
-                <Text style={styles.establishmentCuisine}>{item.cuisine} Cuisine</Text>
-                <View style={styles.locationRow}>
-                    <TouchableOpacity onPress={() => openMaps(item.location, item.name)} style={styles.locationButton}>
-                        <FontAwesome5 name="map-marker-alt" size={18} color='#ffffff' />
-                        <Text style={styles.locationText}>Directions</Text>
-                    </TouchableOpacity>
-                   
-                    <View style={styles.ratingWrapper}>
-                        <Ionicons name="star" size={18} color={'#ffffff'} />
-                        <Text style={styles.ratingText}>{item.rating}</Text>
+                    <Text style={styles.establishmentCuisine}>{item.cuisine} Cuisine</Text>
+                    <View style={styles.locationRow}>
+                        <TouchableOpacity onPress={() => openMaps(item.location, item.name)} style={styles.locationButton}>
+                            <FontAwesome5 name="map-marker-alt" size={18} color='#ffffff' />
+                            <Text style={styles.locationText}>Directions</Text>
+                        </TouchableOpacity>
+
+                        <View style={styles.ratingWrapper}>
+                            <Ionicons name="star" size={18} color={'#ffffff'} />
+                            <Text style={styles.ratingText}>{item.rating}</Text>
+                        </View>
                     </View>
-                </View>
-            </View>
+                </TouchableOpacity>
+            </Link>
         );
     };
 
@@ -225,23 +228,20 @@ const Live = () => {
         <>
             <Stack.Screen
                 options={{
-                    headerTransparent: true,
-                    headerTitle: () => (
-                        <View style={styles.headerContainer}>
-                            <Image
-                                source={require('../../assets/images/Savor-Logo.webp')}
-                                style={styles.image}
-                            />
-                        </View>
-                    ),
+                    headerTransparent: false,
+                    headerShadowVisible: false,
+                    headerTitleAlign: 'center',
                     headerStyle: {
-                        backgroundColor: '#ffffff',
+                        backgroundColor: SCREEN_BACKGROUND,
                     },
+                    headerTintColor: '#264117',
+                    headerTitle: () => <TabHeaderLogo />,
+                    headerRight: () => <SettingsHeaderButton />,
                 }}
             />
 
-            <View style={[styles.container, { paddingTop: headerHeight }]}>
-                <Text style={styles.headingTxt}>Live Deals</Text>
+            <View style={styles.container}>
+                <Text style={styles.taglineTxt}>Deals. Near you. Right now.</Text>
 
                 {/* Categories Component */}
                 <Categories onCategoryChanged={setCategory} />
@@ -278,27 +278,9 @@ const styles = StyleSheet.create({
         backgroundColor: '#f5f5f5',
         paddingHorizontal: 16,
     },
-    headerContainer: {
-        position: 'relative',
-        width: '100%',
-        height: '100%',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flexDirection: 'column',
-        paddingBottom: 30,
-    },
-    image: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        marginTop: 30,
-    },
-    headingTxt: {
-        marginTop: 10,
-        fontSize: 28,
-        fontWeight: '800',
-        color: '#264117',
-        textAlign: 'center',
+    taglineTxt: {
+        ...HEADING_HERO_TEXT,
+        marginBottom: 6,
     },
     list: {
         marginTop: 0,

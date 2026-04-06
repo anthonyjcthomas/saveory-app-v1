@@ -1,29 +1,41 @@
-import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, Image, Dimensions, TouchableOpacity, Linking, ActivityIndicator} from "react-native";
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { StyleSheet, Text, View, Image, TouchableOpacity, Linking, ActivityIndicator, Alert } from "react-native";
 import MapView, { Marker } from 'react-native-maps';
-import MapViewCluster from 'react-native-map-clustering';
 import { Stack, useRouter } from 'expo-router';
-import { useHeaderHeight } from '@react-navigation/elements';
+import { TabHeaderLogo } from '@/components/TabHeaderLogo';
+import { SettingsHeaderButton } from '@/components/SettingsHeaderButton';
+import { HEADING_HERO_TEXT, SCREEN_BACKGROUND } from '@/constants/theme';
 import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { query, collection, getDocs } from "firebase/firestore"; // Firestore imports
 import { db } from '../../firebaseConfig.js'; // Firebase Firestore config
-import { requestTrackingPermission } from 'react-native-tracking-transparency'; // Import the tracking transparency API
+import { requestTrackingPermissionsAsync } from 'expo-tracking-transparency';
+
+const REGION_DELTA = { latitudeDelta: 0.0922, longitudeDelta: 0.0421 };
+
+type MapEstablishment = {
+    id: string;
+    name: string;
+    image: string;
+    location: string;
+    cuisine: string;
+    coordinates: { latitude: number; longitude: number };
+};
 
 const SearchPage = () => {
-    const headerHeight = useHeaderHeight();
     const router = useRouter();
+    const mapRef = useRef<MapView | null>(null);
     const [currentLocation, setCurrentLocation] = useState<Location.LocationObjectCoords | null>(null);
     const [selectedEstablishment, setSelectedEstablishment] = useState<string | null>(null);
-    const [establishments, setEstablishments] = useState([]); // Store fetched establishments
+    const [establishments, setEstablishments] = useState<MapEstablishment[]>([]);
     const [loading, setLoading] = useState(true);
     
 
     useEffect(() => {
         // Request tracking permission on app load
         const askForTrackingPermission = async () => {
-            const trackingStatus = await requestTrackingPermission();
-            if (trackingStatus === 'authorized') {
+            const { status: trackingStatus } = await requestTrackingPermissionsAsync();
+            if (trackingStatus === 'granted') {
                 console.log("Tracking permission granted.");
             } else {
                 console.log("Tracking permission denied or restricted.");
@@ -50,14 +62,20 @@ const SearchPage = () => {
                 const establishmentsRef = collection(db, "establishments");
                 const q = query(establishmentsRef);
                 const querySnapshot = await getDocs(q);
-                const establishmentsArray = querySnapshot.docs.map(doc => ({
-                    id: doc.id,
-                    ...doc.data(),
-                    coordinates: {
-                        latitude: parseFloat(doc.data().latitude),
-                        longitude: parseFloat(doc.data().longitude)
-                    }
-                }));
+                const establishmentsArray: MapEstablishment[] = querySnapshot.docs.map((doc) => {
+                    const d = doc.data();
+                    return {
+                        id: doc.id,
+                        name: String(d.name ?? ''),
+                        image: String(d.image ?? ''),
+                        location: String(d.location ?? ''),
+                        cuisine: String(d.cuisine ?? ''),
+                        coordinates: {
+                            latitude: parseFloat(d.latitude),
+                            longitude: parseFloat(d.longitude),
+                        },
+                    };
+                });
                 setEstablishments(establishmentsArray);
             } catch (error) {
                 console.error("Error fetching establishments:", error);
@@ -68,10 +86,37 @@ const SearchPage = () => {
 
         fetchEstablishments();
     }, []);
+
+    const goToMyLocation = useCallback(async () => {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') {
+            Alert.alert(
+                'Location needed',
+                'Allow location access to move the map to where you are.'
+            );
+            return;
+        }
+        try {
+            const location = await Location.getCurrentPositionAsync({});
+            const coords = location.coords;
+            setCurrentLocation(coords);
+            mapRef.current?.animateToRegion(
+                {
+                    latitude: coords.latitude,
+                    longitude: coords.longitude,
+                    ...REGION_DELTA,
+                },
+                400
+            );
+        } catch {
+            Alert.alert('Location', 'Could not get your current position.');
+        }
+    }, []);
+
     const handleMarkerPress = (id: string) => {
         setSelectedEstablishment(prev => (prev === id ? null : id));
     };
-    const handleImagePress = (id) => {
+    const handleImagePress = (id: string) => {
         // Navigate to the details page with the establishment ID
         router.push(`/Establishments/${id}`);
     };
@@ -81,7 +126,7 @@ const SearchPage = () => {
         Linking.openURL(url);
     };
 
-    const renderExpandedView = (establishment) => (
+    const renderExpandedView = (establishment: MapEstablishment) => (
         <TouchableOpacity onPress={() => handleImagePress(establishment.id)} style={styles.expandedView}>
             <Image
                 source={{ uri: establishment.image }}
@@ -127,36 +172,30 @@ const SearchPage = () => {
         <>
             <Stack.Screen
                 options={{
-                    headerTransparent: true,
-                    headerTitle: () => (
-                        <View style={styles.headerContainer}>
-                            <Image
-                                source={require('../../assets/images/Savor-Logo.webp')}
-                                style={styles.image}
-                            />
-                        </View>
-                    ),
+                    headerTransparent: false,
+                    headerShadowVisible: false,
+                    headerTitleAlign: 'center',
                     headerStyle: {
-                        backgroundColor: '#ffffff',
+                        backgroundColor: SCREEN_BACKGROUND,
                     },
+                    headerTintColor: '#264117',
+                    headerTitle: () => <TabHeaderLogo />,
+                    headerRight: () => <SettingsHeaderButton />,
                 }}
             />
-            <View style={[styles.container, { paddingTop: headerHeight }]}>
-            <Image
-                                source={require('../../assets/images/Savor-Logo.webp')}
-                                style={styles.image}
-                            />
-                <Text style={styles.headingTxt}>Find Food</Text>
-                
-                <MapViewCluster
-                    style={styles.map}
-                    initialRegion={{
-                        latitude: currentLocation ? currentLocation.latitude : 43.0753,
-                        longitude: currentLocation ? currentLocation.longitude : -89.3962,
-                        latitudeDelta: 0.0922,
-                        longitudeDelta: 0.0421,
-                    }}
-                >
+            <View style={styles.container}>
+                <Text style={styles.heroTitle}>Find Food</Text>
+                <View style={styles.mapWrap}>
+                    <MapView
+                        ref={mapRef}
+                        style={styles.map}
+                        showsUserLocation={false}
+                        initialRegion={{
+                            latitude: currentLocation ? currentLocation.latitude : 43.0753,
+                            longitude: currentLocation ? currentLocation.longitude : -89.3962,
+                            ...REGION_DELTA,
+                        }}
+                    >
                     {currentLocation && (
                         <Marker
                             coordinate={{
@@ -171,7 +210,7 @@ const SearchPage = () => {
                             </View>
                         </Marker>
                     )}
-                    
+
                     {establishments.map((establishment) => (
     <Marker
         key={establishment.id}
@@ -194,7 +233,16 @@ const SearchPage = () => {
     </Marker>
 ))}
 
-                </MapViewCluster>
+                    </MapView>
+                    <TouchableOpacity
+                        style={styles.locateButton}
+                        onPress={goToMyLocation}
+                        accessibilityRole="button"
+                        accessibilityLabel="Center map on my location"
+                    >
+                        <Ionicons name="locate" size={26} color="#264117" />
+                    </TouchableOpacity>
+                </View>
             </View>
         </>
     );
@@ -206,11 +254,37 @@ export default SearchPage;
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#f5f5f5',
+        backgroundColor: SCREEN_BACKGROUND,
     },
-    currentLocationMarker: {
+    heroTitle: {
+        ...HEADING_HERO_TEXT,
+        marginBottom: 10,
+        paddingHorizontal: 16,
+    },
+    mapWrap: {
+        flex: 1,
+        marginHorizontal: 10,
+        marginBottom: 10,
+        borderRadius: 10,
+        overflow: 'hidden',
+    },
+    locateButton: {
+        position: 'absolute',
+        right: 14,
+        bottom: 14,
+        backgroundColor: '#ffffff',
+        width: 52,
+        height: 52,
+        borderRadius: 26,
         alignItems: 'center',
         justifyContent: 'center',
+        borderWidth: 2,
+        borderColor: '#264117',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+        elevation: 4,
     },
     outerCircle: {
         width: 70,  // Outer blue glow size
@@ -227,45 +301,10 @@ const styles = StyleSheet.create({
         backgroundColor: '#007AFF', // Solid blue color for inner dot
     },
     map: {
-        width: Dimensions.get('window').width - 20,
-        height: Dimensions.get('window').height - 250,
-        margin: 10,
-        marginBottom: 10,
+        ...StyleSheet.absoluteFillObject,
         borderColor: '#264117',
         borderWidth: 5,
         borderRadius: 10,
-    },
-    headerContainer: {
-        position: 'relative',
-        width: '100%',
-        height: '100%',
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginTop: 30,
-    },
-    headingTxt: {
-        marginTop: 110,
-        fontSize: 28,
-        fontWeight: '800',
-        backgroundColor: '#fffffff',
-        color: '#264117',
-        textAlign: 'center',
-        marginBottom: 10,
-    },
-    image: {
-        width: 40,
-        height: 40,
-        borderRadius: 30,
-        borderColor: '#264117',
-        borderWidth: 0,
-        shadowColor: '#264117',
-        shadowOffset: { width: 2, height: 2 },
-        shadowOpacity: 2,
-        shadowRadius: 10,
-        position: 'absolute',
-        left: '50%',
-        transform: [{ translateX: -20 }],
-        marginTop: 56,
     },
     marker: {
         alignItems: 'center',

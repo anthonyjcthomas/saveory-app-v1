@@ -1,11 +1,12 @@
-import { StyleSheet, Text, TouchableOpacity, View, Image, Modal, Alert, ActivityIndicator } from "react-native";
+import { StyleSheet, Text, TouchableOpacity, View, Modal, Alert, ActivityIndicator } from "react-native";
 import React, { useState, useEffect } from 'react';
-import { Stack, router } from 'expo-router';
+import { Stack } from 'expo-router';
 import ModalDropdown from 'react-native-modal-dropdown';
 import Categories from "@/components/Categories";
 import Establishments from '@/components/Establishments';
-import { useHeaderHeight } from '@react-navigation/elements';
-import { getAuth, signOut } from "firebase/auth";
+import { TabHeaderLogo } from '@/components/TabHeaderLogo';
+import { HEADING_HERO_TEXT, SCREEN_BACKGROUND } from '@/constants/theme';
+import { SettingsHeaderButton } from '@/components/SettingsHeaderButton';
 import { FontAwesome5 } from "@expo/vector-icons";
 import * as Location from 'expo-location'; // Import location permissions and fetching
 
@@ -24,23 +25,8 @@ const Page = () => {
   const [loading, setLoading] = useState(false);
   const [sortedByDistance, setSortedByDistance] = useState(true); // Set initial state to true to sort automatically by distance
   const [userLocation, setUserLocation] = useState(null); // Store user location
-  const headerHeight = useHeaderHeight();
-  const auth = getAuth();
-  const user = auth.currentUser;
 
   const availableDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-
-  // Sign out function
-  const handleSignOut = () => {
-    signOut(auth)
-      .then(() => {
-        console.log('User signed out successfully');
-        router.replace("/landing");
-      })
-      .catch(error => {
-        console.error('Error signing out: ', error);
-      });
-  };
 
   // Get user location on mount
   useEffect(() => {
@@ -75,42 +61,23 @@ const Page = () => {
     setSortedByDistance(true); // Ensure it sorts by distance on category change
   };
 
-  // Function to handle sending an email report
-  const handleReport = () => {
-    if (user && user.email) {
-      const email = `mailto:saveoryapp@gmail.com?subject=User%20Report&body=Dear%20Support,%0D%0A%0D%0AI'm%20experiencing%20an%20issue%20with%20Saveory.%20Please%20assist%20me.%0D%0A%0D%0ARegards,%0D%0A${user.email}`;
-      Linking.openURL(email).catch(err => console.error('Error sending email:', err));
-    } else {
-      Alert.alert('Error', 'No logged-in user found.');
-    }
-  };
-
   return (
     <>
       <Stack.Screen
         options={{
-          headerTransparent: true,
-          headerTitle: () => (
-            <View style={styles.headerContainer}>
-              <TouchableOpacity style={styles.reportButton} onPress={handleReport}>
-                <Text style={styles.reportText}>Report</Text>
-              </TouchableOpacity>
-              <Image
-                source={require('../../assets/images/Savor-Logo.webp')}
-                style={styles.image}
-              />
-              <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
-                <Text style={styles.signOutText}>Sign Out</Text>
-              </TouchableOpacity>
-            </View>
-          ),
+          headerTransparent: false,
+          headerShadowVisible: false,
+          headerTitleAlign: 'center',
           headerStyle: {
-            backgroundColor: '#ffffff',
+            backgroundColor: SCREEN_BACKGROUND,
           },
+          headerTintColor: '#264117',
+          headerTitle: () => <TabHeaderLogo />,
+          headerRight: () => <SettingsHeaderButton />,
         }}
       />
 
-      <View style={[styles.container, { paddingTop: headerHeight }]}>
+      <View style={styles.container}>
         <Text style={styles.headingTxt}>Food. Easier. Near You.</Text>
 
         {/* Filter Button Section */}
@@ -189,7 +156,6 @@ const Page = () => {
           category={category}
           dotw={dayOfWeek}
           sortedByDistance={sortedByDistance}
-          userLocation={userLocation} // Pass user location to Establishments component
         />
       </View>
 
@@ -230,11 +196,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   headingTxt: {
-    marginTop: 10,
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#264117',
-    textAlign: 'center',
+    ...HEADING_HERO_TEXT,
   },
   modalContainer: {
     flex: 1,
@@ -307,40 +269,5 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 18,
     fontWeight: '600',
-  },
-  headerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between', // Spaces the buttons to the sides
-    width: '100%',
-    paddingHorizontal: 20,
-  },
-  image: {
-    marginLeft: 11,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-  },
-  reportButton: {
-    backgroundColor: '#264117',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 5,
-  },
-  reportText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  signOutButton: {
-    backgroundColor: '#264117',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 5,
-  },
-  signOutText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold',
   },
 });

@@ -4,8 +4,9 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Feather, FontAwesome5, Ionicons } from "@expo/vector-icons";
 import { getAuth } from "firebase/auth";
 import { query, collection, where, getDocs } from "firebase/firestore";
-import { db, amplitude } from '../../firebaseConfig.js';
-import CommentsSection from './CommentsSection.tsx';
+import { db, trackEvent } from '../../firebaseConfig.js';
+import { EstablishmentType } from '@/types/establishmentType';
+import CommentsSection from './CommentsSection';
 
 const { width } = Dimensions.get('window');
 const IMG_HEIGHT = 300;
@@ -37,17 +38,15 @@ const EstablishmentDetails: React.FC = () => {
                 const establishmentData = querySnapshot.docs[0].data();
                 const establishmentId = querySnapshot.docs[0].id;
 
-                setEstablishment({ ...establishmentData, id: establishmentId });
+                setEstablishment({ ...establishmentData, id: establishmentId } as EstablishmentType);
 
                 console.log("Establishment fetched:", establishmentData.name);
 
                 // Track view event after fetching
-                amplitude.track('view_establishment', {
-                    establishmentId: establishmentId,
-                    establishmentName: establishmentData.name,
+                trackEvent('view_establishment', {
+                    establishment_id: establishmentId,
+                    establishment_name: establishmentData.name,
                 });
-
-                console.log("View event logged to Amplitude for", establishmentData.name);
             } else {
                 Alert.alert("Error", "Establishment not found.");
                 setEstablishment(null);
@@ -74,11 +73,10 @@ const EstablishmentDetails: React.FC = () => {
             console.log(`Component unmounted, time spent: ${timeSpent} seconds`);
 
             if (establishment) {
-                amplitude.track('time_spent_on_page', {
-                    establishmentName: establishment.name,
-                    timeSpent,
+                trackEvent('time_spent_on_page', {
+                    establishment_name: establishment.name,
+                    time_spent: timeSpent,
                 });
-                console.log(`Time spent on page: ${timeSpent} seconds for ${establishment.name}`);
             }
         };
     }, [id]);
@@ -110,13 +108,10 @@ const EstablishmentDetails: React.FC = () => {
                 message,
             });
 
-            // Track the share event with Amplitude
-            amplitude.track('share_establishment', {
-                establishmentId: establishment.id,
-                establishmentName: establishment.name,
+            trackEvent('share_establishment', {
+                establishment_id: establishment.id,
+                establishment_name: establishment.name,
             });
-
-            console.log("Share event logged to Amplitude for", establishment.name);
         } catch (error) {
             Alert.alert('Error', 'Failed to share the establishment.');
         }
@@ -128,12 +123,10 @@ const EstablishmentDetails: React.FC = () => {
             Alert.alert("Error", "Failed to open maps.");
         });
 
-        // Track the open maps event
-        amplitude.track('click_open_maps', {
-            establishmentId: establishment.id,
-            establishmentName: establishment.name,
+        trackEvent('click_open_maps', {
+            establishment_id: establishment.id,
+            establishment_name: establishment.name,
         });
-        console.log("Open maps event logged to Amplitude for", establishment.name);
     };
     const handleReportOutdatedHappyHour = () => {
         if (user && user.email) {
@@ -248,12 +241,26 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
+    headerButton: {
+        padding: 8,
+    },
+    iconWrapper: {
+        backgroundColor: '#ffffff',
+        borderRadius: 20,
+        padding: 6,
+    },
     footer: {
         padding: 20,
         borderTopWidth: 1,
         borderTopColor: '#dcdcdc',
         width: '100%',
         backgroundColor: '#f5f5f5',
+    },
+    establishmentDetails: {
+        fontSize: 15,
+        color: '#555555',
+        lineHeight: 22,
+        marginBottom: 10,
     },
     footerTitle: {
         alignItems: 'center',

@@ -1,9 +1,9 @@
-import { Button, StyleSheet, TextInput, TouchableOpacity, Alert } from "react-native";
-import { getAuth, signInWithEmailAndPassword, signInAnonymously, deleteUser } from "firebase/auth";
+import { StyleSheet, TextInput, TouchableOpacity, Alert, KeyboardAvoidingView, TouchableWithoutFeedback, Keyboard, Platform, ScrollView } from "react-native";
+import { getAuth, signInWithEmailAndPassword, signInAnonymously, sendPasswordResetEmail } from "firebase/auth";
 import { Text, View } from "@/components/Themed";
 import { useState } from "react";
 import { router } from "expo-router";
-import { Ionicons } from '@expo/vector-icons'; // Ensure you have this library installed
+import { Ionicons } from '@expo/vector-icons';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState<string>("");
@@ -14,13 +14,13 @@ export default function LoginScreen() {
       .then((user) => {
         if (user) router.replace("/(tabs)");
       })
-      .catch((error) => {
+      .catch(() => {
         Alert.alert('Login Error', "Incorrect Username or Password");
       });
   };
 
   const handleSignUpRedirect = () => {
-    router.back(); // Go back to the previous screen (assumed to be signup)
+    router.back();
   };
 
   const handleGuestLogin = () => {
@@ -28,59 +28,104 @@ export default function LoginScreen() {
       .then(() => {
         router.replace("/(tabs)");
       })
-      .catch((error) => {
+      .catch(() => {
         Alert.alert('Login Error', "Unable to continue as guest");
       });
   };
 
+  const handleForgotPassword = () => {
+    const trimmed = email.trim();
+    if (!trimmed) {
+      Alert.alert(
+        "Email required",
+        "Type your email in the field above, then tap Forgot password."
+      );
+      return;
+    }
+    sendPasswordResetEmail(getAuth(), trimmed)
+      .then(() =>
+        Alert.alert(
+          "Check your email",
+          "If an account exists for that address, you’ll receive a reset link from Firebase."
+        )
+      )
+      .catch((e: { message?: string }) =>
+        Alert.alert("Could not send email", e.message ?? "Try again later.")
+      );
+  };
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Welcome Back!</Text>
-      <Text style={styles.subtitle}>Log in to continue</Text>
+    <KeyboardAvoidingView
+      style={styles.flex}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <ScrollView
+          contentContainerStyle={styles.container}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Text style={styles.title}>Welcome Back!</Text>
+          <Text style={styles.subtitle}>Log in to continue</Text>
 
-      <TextInput
-        style={styles.input}
-        placeholder="Email"
-        placeholderTextColor="#888"
-        onChangeText={(text) => setEmail(text)}
-        value={email}
-        keyboardType="email-address"
-        autoCapitalize="none"
-      />
+          <TextInput
+            style={styles.input}
+            placeholder="Email"
+            placeholderTextColor="#888"
+            onChangeText={(text) => setEmail(text)}
+            value={email}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            returnKeyType="next"
+          />
 
-      <TextInput
-        style={styles.input}
-        placeholder="Password"
-        placeholderTextColor="#888"
-        onChangeText={(text) => setPassword(text)}
-        value={password}
-        secureTextEntry
-      />
+          <TextInput
+            style={styles.input}
+            placeholder="Password"
+            placeholderTextColor="#888"
+            onChangeText={(text) => setPassword(text)}
+            value={password}
+            secureTextEntry
+            returnKeyType="done"
+            onSubmitEditing={handleLogin}
+          />
 
-      <TouchableOpacity style={styles.button} onPress={handleLogin}>
-        <Text style={styles.buttonText}>Login</Text>
-      </TouchableOpacity>
+          <TouchableOpacity style={styles.button} onPress={handleLogin}>
+            <Text style={styles.buttonText}>Login</Text>
+          </TouchableOpacity>
 
-      <TouchableOpacity style={styles.guestButton} onPress={handleGuestLogin}>
-        <Text style={styles.buttonText}>Continue as Guest</Text>
-      </TouchableOpacity>
+          <TouchableOpacity style={styles.guestButton} onPress={handleGuestLogin}>
+            <Text style={styles.buttonText}>Continue as Guest</Text>
+          </TouchableOpacity>
 
-      <TouchableOpacity style={styles.backButton} onPress={handleSignUpRedirect}>
-        <Ionicons name="arrow-back" size={24} color="white" />
-        <Text style={styles.backButtonText}>Back to Signup</Text>
-      </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.forgotWrap}
+            onPress={handleForgotPassword}
+          >
+            <Text style={styles.forgotText}>Forgot password?</Text>
+          </TouchableOpacity>
 
-      <TouchableOpacity style={styles.deleteButton} onPress={() => router.push('/DeleteAccount')}>
-        <Text style={styles.deleteText}>Delete Account</Text>
-      </TouchableOpacity>
-    </View>
+          <TouchableOpacity style={styles.backButton} onPress={handleSignUpRedirect}>
+            <Ionicons name="arrow-back" size={24} color="white" />
+            <Text style={styles.backButtonText}>Back to Signup</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.deleteButton} onPress={() => router.push('/DeleteAccount')}>
+            <Text style={styles.deleteText}>Delete Account</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  flex: {
     flex: 1,
-    backgroundColor: "#264117", // Dark green background
+    backgroundColor: "#264117",
+  },
+  container: {
+    flexGrow: 1,
+    backgroundColor: "#264117",
     alignItems: "center",
     justifyContent: "center",
     padding: 20,
@@ -89,40 +134,49 @@ const styles = StyleSheet.create({
     width: '100%',
     padding: 15,
     borderWidth: 1,
-    borderColor: '#ffffff', // White border
+    borderColor: '#ffffff',
     borderRadius: 10,
     backgroundColor: '#f2f2f2',
-    marginBottom: 20,
+    marginBottom: 12,
     color: '#000',
+  },
+  forgotWrap: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  forgotText: {
+    color: '#ffffff',
+    fontSize: 15,
+    textDecorationLine: 'underline',
   },
   title: {
     fontSize: 28,
     fontWeight: "800",
-    color: "#ffffff", // White text
+    color: "#ffffff",
     marginBottom: 10,
   },
   subtitle: {
     fontSize: 16,
-    color: "#ffffff", // White text
+    color: "#ffffff",
     marginBottom: 30,
   },
   button: {
     width: "100%",
     padding: 15,
-    backgroundColor: "#ffffff", // White background
+    backgroundColor: "#ffffff",
     borderRadius: 10,
     alignItems: "center",
     marginBottom: 20,
   },
   buttonText: {
-    color: "#264117", // Dark green text
+    color: "#264117",
     fontWeight: "600",
     fontSize: 16,
   },
   guestButton: {
     width: "100%",
     padding: 15,
-    backgroundColor: "#ffffff", // White background for guest button
+    backgroundColor: "#ffffff",
     borderRadius: 10,
     alignItems: "center",
     marginBottom: 20,
@@ -133,21 +187,16 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   backButtonText: {
-    color: "#ffffff", // White text for back to signup
+    color: "#ffffff",
     fontSize: 16,
     marginLeft: 5,
-  },
-  linkText: {
-    color: "#264117", // Dark green text
-    fontSize: 16,
-    textDecorationLine: "underline",
   },
   deleteButton: {
     marginTop: 30,
     alignItems: "center",
   },
   deleteText: {
-    color: "#FF0000", // Red text for delete account
+    color: "#FF0000",
     fontSize: 16,
     textDecorationLine: "underline",
   },

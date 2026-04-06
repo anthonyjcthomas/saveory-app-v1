@@ -34,7 +34,6 @@ export default function Layout() {
       <Tabs.Screen
         name="search"
         options={{
-          headerShown: false,
           tabBarIcon: ({ color }) => (
             <Ionicons name="map" size={28} color={color} />
           ),

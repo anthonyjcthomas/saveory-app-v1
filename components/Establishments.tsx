@@ -1,5 +1,5 @@
-import { collection, getDocs } from "firebase/firestore"; // Firestore imports
-import { db } from '../firebaseConfig.js'; // Firebase Firestore config
+import { collection, getDocs } from "firebase/firestore";
+import { db, trackEvent } from '../firebaseConfig.js';
 import { FlatList, StyleSheet, Text, TouchableOpacity, View, Image, ListRenderItem, Dimensions, ActivityIndicator } from "react-native";
 import React, { useEffect, useState } from 'react';
 import * as Location from 'expo-location';
@@ -7,10 +7,8 @@ import { FontAwesome5, Ionicons } from "@expo/vector-icons";
 import { EstablishmentType } from '@/types/establishmentType';
 import { Link } from "expo-router";
 import { useBookmarks } from '@/components/BookmarksContext';
-import { SharedElement } from 'react-navigation-shared-element';
-import moment from 'moment'; 
-import { requestTrackingPermission } from 'react-native-tracking-transparency';
-import { amplitude } from "../firebaseConfig.js";
+import moment from 'moment';
+import { requestTrackingPermissionsAsync } from 'expo-tracking-transparency';
 
 type Props = {
   category: string;
@@ -100,8 +98,8 @@ const Establishments = ({ category, dotw, selectedHour, sortedByDistance }: Prop
     const initialize = async () => {
       try {
         // Request tracking permission
-        const trackingStatus = await requestTrackingPermission();
-        if (trackingStatus === 'authorized') {
+        const { status: trackingStatus } = await requestTrackingPermissionsAsync();
+        if (trackingStatus === 'granted') {
           console.log('Tracking permission granted.');
         } else {
           console.log('Tracking permission denied or restricted.');
@@ -132,54 +130,57 @@ const Establishments = ({ category, dotw, selectedHour, sortedByDistance }: Prop
   }, []);
 
 
-  // Normalize the time for comparison
-  const normalizeTime = (time: string) => {
-    return moment(time, ['h:mm A']).format('HH:mm');
-  };
-
   useEffect(() => {
     let updatedEstablishments = [...establishments];
-  
-    // Normalize the time for comparison
-    const normalizeTime = (time) => {
-      if (time === "12:00 AM") return "00:00"; // Midnight case
-      return moment(time, ['h:mm A']).format('HH:mm');
+
+    /**
+     * normalizeDropdownTime — converts the 12-hour AM/PM strings from the
+     * dropdown UI (e.g. "5:00 PM", "12:00 AM") into 24-hour "HH:mm" strings.
+     */
+    const normalizeDropdownTime = (time: string): string => {
+      if (time === "12:00 AM") return "00:00";
+      return moment(time, 'h:mm A').format('HH:mm');
     };
-  
+
     if (category !== "All") {
       updatedEstablishments = updatedEstablishments.filter(establishment =>
-        Array.isArray(establishment.category) ? establishment.category.includes(category) : establishment.category === category
+        Array.isArray(establishment.category)
+          ? establishment.category.includes(category)
+          : establishment.category === category
       );
     }
-  
+
     if (dotw !== "Select Day" && selectedHour !== "Select Hour") {
-      const selectedTime = normalizeTime(selectedHour);
+      // The selected hour comes from the dropdown in 12-hour format — normalize it.
+      const selectedTimeMoment = moment(normalizeDropdownTime(selectedHour), 'HH:mm');
+
       updatedEstablishments = updatedEstablishments.filter(establishment =>
         establishment.happy_hour_deals.some(deal => {
-          const dayMatch = deal.deal_list.includes(dotw); // Check if the deal day matches
+          const dayMatch = deal.deal_list.includes(dotw);
           if (!dayMatch) return false;
-  
-          const dealStartTime = normalizeTime(deal.start_time);
-          const dealEndTime = normalizeTime(deal.end_time);
-          const startTimeMoment = moment(dealStartTime, "HH:mm");
-          let endTimeMoment = moment(dealEndTime, "HH:mm");
-  
-          // Handle deals that span over midnight
+
+          // Firestore stores start_time/end_time in 24-hour "HH:mm" format — parse directly.
+          const startTimeMoment = moment(deal.start_time, 'HH:mm', true);
+          let endTimeMoment = moment(deal.end_time, 'HH:mm', true);
+
+          if (!startTimeMoment.isValid() || !endTimeMoment.isValid()) return false;
+
+          // Handle deals that span midnight (e.g. 22:00 → 02:00)
           if (endTimeMoment.isBefore(startTimeMoment)) {
-            endTimeMoment.add(1, 'day'); // this handles overnight deals that end after midnight
+            endTimeMoment.add(1, 'day');
           }
-  
-          const selectedTimeMoment = moment(selectedTime, "HH:mm");
-          // Check if the selected time is within the deal's time range
-          return selectedTimeMoment.isBetween(startTimeMoment, endTimeMoment, null, '[]'); // Inclusive of start and end times
+
+          return selectedTimeMoment.isBetween(startTimeMoment, endTimeMoment, null, '[]');
         })
       );
     }
-  
+
     if (sortedByDistance) {
-      updatedEstablishments.sort((a, b) => a.distance != null && b.distance != null ? a.distance - b.distance : 0);
+      updatedEstablishments.sort((a, b) =>
+        a.distance != null && b.distance != null ? a.distance - b.distance : 0
+      );
     }
-  
+
     setFilteredEstablishments(updatedEstablishments);
   }, [category, dotw, selectedHour, establishments, sortedByDistance]);
   
@@ -188,10 +189,10 @@ const Establishments = ({ category, dotw, selectedHour, sortedByDistance }: Prop
       removeBookmark(establishment.id);
     } else {
       addBookmark(establishment);
-      amplitude.track('bookmarked', {
-        establishmentId: establishment.id,
-        establishmentName: establishment
-    });
+      trackEvent('bookmarked', {
+        establishment_id: establishment.id,
+        establishment_name: establishment.name,
+      });
     }
   };
 
@@ -202,9 +203,7 @@ const Establishments = ({ category, dotw, selectedHour, sortedByDistance }: Prop
       <Link href={`/Establishments/${item.id}`} asChild>
         <TouchableOpacity style={styles.itemWrapper}>
           <View style={styles.item}>
-            <SharedElement id={`item.${item.id}.photo`}>
-              <Image source={{ uri: item.image }} style={styles.image} />
-            </SharedElement>
+            <Image source={{ uri: item.image }} style={styles.image} />
             <TouchableOpacity
               onPress={() => handleBookmark(item)}
               style={styles.bookmark}
@@ -280,6 +279,11 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 14,
+    color: '#264117',
   },
   itemWrapper: {
     flex: 1,

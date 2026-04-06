@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, View, Text, FlatList, TouchableOpacity, Image, Dimensions } from 'react-native';
 import { Stack } from 'expo-router';
+import { TabHeaderLogo } from '@/components/TabHeaderLogo';
+import { SettingsHeaderButton } from '@/components/SettingsHeaderButton';
+import { SCREEN_BACKGROUND } from '@/constants/theme';
 import { useBookmarks } from '@/components/BookmarksContext';
 import { EstablishmentType } from '@/types/establishmentType';
 import { FontAwesome5, Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { Link } from 'expo-router';
-import { requestTrackingPermission } from 'react-native-tracking-transparency'; // Add this import
-import { amplitude } from '@/firebaseConfig';
+import { requestTrackingPermissionsAsync } from 'expo-tracking-transparency';
 
 const { width } = Dimensions.get('window');
 
@@ -17,9 +19,9 @@ const BookmarksPage: React.FC = () => {
 
     useEffect(() => {
         (async () => {
-            // Request tracking permission
-            const trackingStatus = await requestTrackingPermission();
-            if (trackingStatus === 'authorized') {
+            // Request tracking permission (iOS ATT)
+            const { status: trackingStatus } = await requestTrackingPermissionsAsync();
+            if (trackingStatus === 'granted') {
                 console.log('Tracking permission granted.');
             } else {
                 console.log('Tracking permission denied or restricted.');
@@ -111,23 +113,18 @@ const BookmarksPage: React.FC = () => {
         <View style={styles.container}>
             <Stack.Screen
                 options={{
-                    headerTransparent: true,
-                    headerTitle: () => (
-                        <View style={styles.headerContainer}>
-                            <Image
-                                source={require('../../assets/images/Savor-Logo.webp')}
-                                style={styles.headerImage}
-                            />
-                            <Text style={styles.headingTxt}>Bookmarks</Text>
-                        </View>
-                    ),
+                    headerTransparent: false,
+                    headerShadowVisible: false,
+                    headerTitleAlign: 'center',
                     headerStyle: {
-                        backgroundColor: '#ffffff',
+                        backgroundColor: SCREEN_BACKGROUND,
                     },
+                    headerTintColor: '#264117',
+                    headerTitle: () => <TabHeaderLogo />,
+                    headerRight: () => <SettingsHeaderButton />,
                 }}
             />
             <View style={styles.contentContainer}>
-                
                 <FlatList
                     data={bookmarks}
                     renderItem={renderItems}
@@ -150,9 +147,9 @@ const styles = StyleSheet.create({
         backgroundColor: '#f5f5f5',
     },
     contentContainer: {
-        marginTop: 130,
-        padding: 10,
-        flex: 1, // Added flex to allow proper spacing
+        paddingHorizontal: 10,
+        paddingBottom: 10,
+        flex: 1,
     },
     row: {
         justifyContent: 'space-between',
@@ -203,34 +200,6 @@ const styles = StyleSheet.create({
         fontSize: 14,
         marginLeft: 5,
         color: '#264117',
-    },
-    headerContainer: {
-        position: 'relative',
-        width: '100%',
-        height: '100%',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flexDirection: 'column',
-    },
-    headerImage: {
-        marginTop: 38,
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        borderColor: '#264117',
-        borderWidth: 0,
-        shadowColor: '#264117',
-        shadowOffset: { width: 2, height: 2 },
-        shadowOpacity: 2,
-        shadowRadius: 10,
-    },
-    headingTxt: {
-        marginTop: 10,
-        fontSize: 28,
-        fontWeight: '800',
-        backgroundColor: '#fffff',
-        color: '#264117',
-        textAlign: 'center',
     },
     headerText: {
         fontSize: 24,

@@ -8,7 +8,7 @@ import {
   Alert,
 } from 'react-native';
 import { router } from 'expo-router';
-import { getAuth, signInWithEmailAndPassword, signInAnonymously } from 'firebase/auth';
+import { getAuth, signInWithEmailAndPassword, signInAnonymously, sendPasswordResetEmail } from 'firebase/auth';
 
 export default function Landing() {
   const [email, setEmail] = useState<string>('');
@@ -34,6 +34,27 @@ export default function Landing() {
       .catch((error) => {
         Alert.alert('Guest Login Error', 'Unable to continue as guest');
       });
+  };
+
+  const handleForgotPassword = () => {
+    const trimmed = email.trim();
+    if (!trimmed) {
+      Alert.alert(
+        'Email required',
+        'Enter your email above, then tap Forgot password.'
+      );
+      return;
+    }
+    sendPasswordResetEmail(auth, trimmed)
+      .then(() =>
+        Alert.alert(
+          'Check your email',
+          'If an account exists for that address, you’ll receive a reset link from Firebase.'
+        )
+      )
+      .catch((e: { message?: string }) =>
+        Alert.alert('Could not send email', e.message ?? 'Try again later.')
+      );
   };
 
   return (
@@ -66,6 +87,10 @@ export default function Landing() {
 
       <TouchableOpacity style={styles.guestButton} onPress={handleGuestLogin}>
         <Text style={styles.buttonText}>Continue as Guest</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity style={styles.forgotWrap} onPress={handleForgotPassword}>
+        <Text style={styles.forgotText}>Forgot password?</Text>
       </TouchableOpacity>
 
       <TouchableOpacity onPress={() => router.push('/register')}>
@@ -127,7 +152,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff', // White background for guest button
     borderRadius: 10,
     alignItems: 'center',
+    marginBottom: 16,
+  },
+  forgotWrap: {
     marginBottom: 20,
+  },
+  forgotText: {
+    color: '#ffffff',
+    fontSize: 15,
+    textDecorationLine: 'underline',
   },
   linkText: {
     color: '#ffffff', // White text
