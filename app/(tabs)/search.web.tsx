@@ -17,11 +17,15 @@ import {
 import { GoogleMap, InfoWindow, LoadScript, Marker, OverlayView } from '@react-google-maps/api';
 import { Stack, Link } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { collection, getDocs, query } from 'firebase/firestore';
 import { TabHeaderLogo } from '@/components/TabHeaderLogo';
 import { SettingsHeaderButton } from '@/components/SettingsHeaderButton';
 import { HEADING_HERO_TEXT, SCREEN_BACKGROUND, BRAND_GREEN } from '@/constants/theme';
-import { db } from '../../firebaseConfig.js';
+import {
+  readEstablishmentsCache,
+  fetchEstablishmentsFromFirestore,
+  persistEstablishmentsCacheIfChanged,
+  toWebMapEstablishments,
+} from '@/lib/establishmentsRepository';
 import { geocodePlaceQuery, MADISON_CENTER, openGoogleDirections } from '@/lib/googleMapsHelpers';
 import { getCurrentPositionOrFallback } from '@/lib/location';
 
@@ -95,24 +99,6 @@ const EstablishmentMapPin = React.memo(function EstablishmentMapPin({
   );
 });
 
-async function fetchEstablishmentsWeb(): Promise<MapEstablishment[]> {
-  const snap = await getDocs(query(collection(db, 'establishments')));
-  return snap.docs.map((docSnap) => {
-    const d = docSnap.data();
-    return {
-      id: docSnap.id,
-      name: String(d.name ?? ''),
-      image: String(d.image ?? ''),
-      location: String(d.location ?? ''),
-      cuisine: String(d.cuisine ?? ''),
-      coordinates: {
-        lat: parseFloat(String(d.latitude)),
-        lng: parseFloat(String(d.longitude)),
-      },
-    };
-  });
-}
-
 export default function SearchPageWeb() {
   const { width: windowWidth } = useWindowDimensions();
   const contentMaxWidth = Math.min(920, windowWidth);
@@ -131,7 +117,10 @@ export default function SearchPageWeb() {
     let cancelled = false;
     (async () => {
       try {
-        const [loc, list] = await Promise.all([getCurrentPositionOrFallback(), fetchEstablishmentsWeb()]);
+        const [loc, cached] = await Promise.all([
+          getCurrentPositionOrFallback(),
+          readEstablishmentsCache(),
+        ]);
         if (cancelled) return;
         if (loc) {
           const p = { lat: loc.coords.latitude, lng: loc.coords.longitude };
@@ -139,7 +128,13 @@ export default function SearchPageWeb() {
           setMapCenter(p);
           setMapZoom(13);
         }
-        setEstablishments(list);
+        if (cached?.establishments?.length) {
+          setEstablishments(toWebMapEstablishments(cached.establishments));
+        }
+        const fresh = await fetchEstablishmentsFromFirestore();
+        await persistEstablishmentsCacheIfChanged(cached, fresh);
+        if (cancelled) return;
+        setEstablishments(toWebMapEstablishments(fresh.establishments));
       } catch (e) {
         console.error(e);
       } finally {

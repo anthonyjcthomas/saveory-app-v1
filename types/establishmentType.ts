@@ -24,4 +24,6 @@ export interface EstablishmentType {
     cuisine: string;
     /** Distance in miles from user, calculated client-side */
     distance?: number | null;
+    /** Set when Firestore document includes `updated_at` (client-normalized ms). */
+    updated_at_ms?: number;
 }

@@ -94,6 +94,7 @@ export default function RootLayout() {
           />
           <Stack.Screen name="Establishments/[id]" options={{ headerShown: false }} />
           <Stack.Screen name="settings" />
+          <Stack.Screen name="owner" options={{ headerShown: false }} />
         </Stack>
       </ThemeProvider>
     </BookmarksProvider>

@@ -1,5 +1,9 @@
-import { collection, getDocs } from "firebase/firestore";
-import { db, trackEvent } from '../firebaseConfig.js';
+import { trackEvent } from '../firebaseConfig.js';
+import {
+  readEstablishmentsCache,
+  fetchEstablishmentsFromFirestore,
+  persistEstablishmentsCacheIfChanged,
+} from '@/lib/establishmentsRepository';
 import { FlatList, StyleSheet, Text, TouchableOpacity, View, Image, ListRenderItem, Dimensions, ActivityIndicator } from "react-native";
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { FontAwesome5, Ionicons } from "@expo/vector-icons";
@@ -23,22 +27,6 @@ const Establishments = ({ category, dotw, selectedHour, sortedByDistance }: Prop
   const [loading, setLoading] = useState(true);
   const { addBookmark, removeBookmark, isBookmarked } = useBookmarks();
   const [establishments, setEstablishments] = useState<EstablishmentType[]>([]);
-
-  // Fetch data from Firestore
-  const fetchEstablishments = async () => {
-    try {
-      const establishmentsCollection = collection(db, "establishments");
-      const establishmentsSnapshot = await getDocs(establishmentsCollection);
-      const establishmentsList = establishmentsSnapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as EstablishmentType[];
-      return establishmentsList; // Ensure to return the list
-    } catch (error) {
-      console.error("Error fetching establishments: ", error);
-      return [];
-    }
-  };
 
   // Calculate distances for all establishments
   const calculateDistances = (location: LocationObject, establishments: EstablishmentType[]) => {
@@ -67,17 +55,34 @@ const Establishments = ({ category, dotw, selectedHour, sortedByDistance }: Prop
       try {
         setLoading(true);
 
-        const [, fetchedEstablishments, location] = await Promise.all([
+        const [, cached, location] = await Promise.all([
           requestTrackingPermissionsAsync().catch(() => ({ status: 'denied' as const })),
-          fetchEstablishments(),
+          readEstablishmentsCache(),
           getCurrentPositionOrFallback(),
         ]);
 
-        if (location) {
-          const establishmentsWithDistance = calculateDistances(location, fetchedEstablishments);
-          setEstablishments(establishmentsWithDistance);
-        } else {
-          setEstablishments(fetchedEstablishments);
+        if (cached?.establishments?.length) {
+          if (location) {
+            setEstablishments(calculateDistances(location, cached.establishments));
+          } else {
+            setEstablishments(cached.establishments);
+          }
+          setLoading(false);
+        }
+
+        try {
+          const fresh = await fetchEstablishmentsFromFirestore();
+          await persistEstablishmentsCacheIfChanged(cached, fresh);
+          if (location) {
+            setEstablishments(calculateDistances(location, fresh.establishments));
+          } else {
+            setEstablishments(fresh.establishments);
+          }
+        } catch (error) {
+          console.error('Error fetching establishments:', error);
+          if (!cached?.establishments?.length) {
+            setEstablishments([]);
+          }
         }
       } catch (error) {
         console.error("Initialization error:", error);

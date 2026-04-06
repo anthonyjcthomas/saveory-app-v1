@@ -5,6 +5,7 @@ import { Feather, FontAwesome5, Ionicons } from "@expo/vector-icons";
 import { doc, getDoc, query, collection, where, getDocs } from "firebase/firestore";
 import { auth, db, trackEvent } from '../../firebaseConfig.js';
 import { EstablishmentType } from '@/types/establishmentType';
+import { getCachedEstablishmentById } from '@/lib/establishmentsRepository';
 import CommentsSection from './CommentsSection';
 
 const { width } = Dimensions.get('window');
@@ -24,6 +25,21 @@ const EstablishmentDetails: React.FC = () => {
         if (!id) {
             Alert.alert("Error", "No establishment ID provided.");
             router.back();
+            return;
+        }
+
+        const cached = await getCachedEstablishmentById(String(id));
+        if (cached) {
+            setEstablishment(cached);
+            setLoading(false);
+        }
+
+        if (!db) {
+            if (!cached) {
+                Alert.alert('Error', 'Firebase is not configured.');
+                router.back();
+            }
+            setLoading(false);
             return;
         }
 
@@ -56,7 +72,7 @@ const EstablishmentDetails: React.FC = () => {
                         establishment_id: establishmentId,
                         establishment_name: establishmentData.name,
                     });
-                } else {
+                } else if (!cached) {
                     Alert.alert("Error", "Establishment not found.");
                     setEstablishment(null);
                     router.back();
@@ -64,9 +80,11 @@ const EstablishmentDetails: React.FC = () => {
             }
         } catch (error) {
             console.error("Error fetching establishment details:", error);
-            Alert.alert("Error", "Failed to fetch establishment details.");
-            setEstablishment(null);
-            router.back();
+            if (!cached) {
+                Alert.alert("Error", "Failed to fetch establishment details.");
+                setEstablishment(null);
+                router.back();
+            }
         } finally {
             setLoading(false);
         }

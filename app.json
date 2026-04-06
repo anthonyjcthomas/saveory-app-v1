@@ -20,7 +20,7 @@
       "icon": "./SaveoryLogo.png",
       "buildNumber": "12",
       "infoPlist": {
-        "UIBackgroundModes": ["location"],
+        "UIBackgroundModes": ["location", "remote-notification"],
         "NSLocationWhenInUseUsageDescription": "We need access to your location to show nearby deals and businesses.",
         "NSLocationAlwaysUsageDescription": "We need access to your location in the background to keep updating the deals near you.",
         "NSUserTrackingUsageDescription": "We use your data to provide personalized deals and promotions relevant to you."
@@ -34,7 +34,8 @@
       },
       "permissions": [
         "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION"
+        "ACCESS_FINE_LOCATION",
+        "POST_NOTIFICATIONS"
       ]
     },
     "web": {
@@ -44,6 +45,7 @@
     },
     "plugins": [
       "expo-router",
+      "expo-notifications",
       "expo-tracking-transparency",
       [
         "expo-location",

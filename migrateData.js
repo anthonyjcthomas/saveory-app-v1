@@ -1,4 +1,4 @@
-import { collection, setDoc, doc, writeBatch } from "firebase/firestore"; // Firestore imports
+import { collection, setDoc, doc, writeBatch, serverTimestamp } from "firebase/firestore"; // Firestore imports
 import { db, auth } from './firebaseConfigNode.js'; // Firebase config import
 import { signInWithEmailAndPassword } from "firebase/auth"; // Import Firebase authentication
 
@@ -1881,7 +1881,7 @@ async function authenticate() {
       // Add all establishments to the batch
       establishments.forEach((establishment) => {
         const docRef = doc(db, "establishments", establishment.name); // Set doc ID as establishment name
-        batch.set(docRef, establishment);
+        batch.set(docRef, { ...establishment, updated_at: serverTimestamp() });
       });
   
       await batch.commit(); // Commit the batch

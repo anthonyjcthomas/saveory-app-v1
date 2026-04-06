@@ -1,0 +1,43 @@
+rules_version = '2';
+
+// Deploy: `firebase deploy --only firestore:rules`
+// Note: `establishments` cannot be created by clients — use Firebase Admin for bulk imports / new docs.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwnerOfEstablishment(estId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/businessOwners/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/businessOwners/$(request.auth.uid)).data.establishmentId == estId;
+    }
+
+    // Who may act as a business owner (mapping only; create via Admin / console).
+    match /businessOwners/{userId} {
+      allow read: if isSignedIn() && request.auth.uid == userId;
+      allow write: if false;
+    }
+
+    // Establishments: all signed-in users can read; owners may update their own doc only.
+    match /establishments/{estId} {
+      allow read: if isSignedIn();
+      allow create, delete: if false;
+      allow update: if isOwnerOfEstablishment(estId);
+    }
+
+    // Profile + push token (same doc as username in CommentsSection).
+    match /users/{userId} {
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    match /comments/{commentId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow update: if false;
+    }
+  }
+}

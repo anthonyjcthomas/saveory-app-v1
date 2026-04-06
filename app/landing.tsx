@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   Alert,
+  Linking,
 } from 'react-native';
 import { router } from 'expo-router';
 import { signInWithEmailAndPassword, signInAnonymously, sendPasswordResetEmail } from 'firebase/auth';
@@ -100,6 +101,25 @@ export default function Landing() {
         <Text style={styles.linkText}>Don't have an account? Sign Up</Text>
       </TouchableOpacity>
 
+      <TouchableOpacity
+        style={styles.businessLink}
+        onPress={() => {
+          const subject = encodeURIComponent('Saveory — request business listing');
+          const body = encodeURIComponent(
+            "I'd like to list my restaurant on Saveory.\n\n" +
+              '(After you have an account, Settings can include your Firebase UID for faster setup.)\n\n' +
+              'Business name:\n' +
+              'City:\n' +
+              'Contact:\n'
+          );
+          Linking.openURL(`mailto:saveoryapp@gmail.com?subject=${subject}&body=${body}`).catch(() =>
+            Alert.alert('Error', 'Could not open your email app.')
+          );
+        }}
+      >
+        <Text style={styles.businessLinkText}>List your business</Text>
+      </TouchableOpacity>
+
       <TouchableOpacity style={styles.deleteButton} onPress={() => router.push('/DeleteAccount')}>
         <Text style={styles.deleteText}>Delete Account</Text>
       </TouchableOpacity>
@@ -169,6 +189,16 @@ const styles = StyleSheet.create({
     color: '#ffffff', // White text
     fontSize: 16,
     textDecorationLine: 'underline',
+  },
+  businessLink: {
+    marginTop: 24,
+    alignItems: 'center',
+  },
+  businessLinkText: {
+    color: '#e8f5e9',
+    fontSize: 15,
+    textDecorationLine: 'underline',
+    fontWeight: '600',
   },
   deleteButton: {
     marginTop: 30,

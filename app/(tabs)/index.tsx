@@ -8,10 +8,46 @@ import moment from 'moment-timezone';
 import { Ionicons, FontAwesome5 } from '@expo/vector-icons';
 import { EstablishmentType, HappyHourDeal } from '@/types/establishmentType';
 import Categories from "@/components/Categories";
-import { db, trackEvent } from '../../firebaseConfig.js';
+import { trackEvent } from '../../firebaseConfig.js';
 import { getCurrentPositionOrFallback } from '@/lib/location';
 import { distanceKm, kmToMiles } from '@/lib/haversine';
-import { collection, getDocs } from 'firebase/firestore';
+import {
+    readEstablishmentsCache,
+    fetchEstablishmentsFromFirestore,
+    persistEstablishmentsCacheIfChanged,
+} from '@/lib/establishmentsRepository';
+import type { LocationObject } from 'expo-location';
+
+function sortEstablishmentsByLocation(
+    establishments: EstablishmentType[],
+    location: LocationObject | null
+): EstablishmentType[] {
+    if (!location) {
+        return establishments.map((e) => ({ ...e, distance: undefined }));
+    }
+    const userLatitude = location.coords.latitude;
+    const userLongitude = location.coords.longitude;
+    return establishments
+        .map((establishment) => {
+            const latitude =
+                typeof establishment.latitude === 'string' ? parseFloat(establishment.latitude) : establishment.latitude;
+            const longitude =
+                typeof establishment.longitude === 'string'
+                    ? parseFloat(establishment.longitude)
+                    : establishment.longitude;
+
+            if (isNaN(latitude) || isNaN(longitude)) {
+                console.warn(
+                    `Invalid coordinates for establishment ${establishment.id}: lat=${establishment.latitude}, lon=${establishment.longitude}`
+                );
+                return { ...establishment, distance: Infinity };
+            }
+
+            const distance = distanceKm(userLatitude, userLongitude, latitude, longitude);
+            return { ...establishment, distance };
+        })
+        .sort((a, b) => (a.distance || Infinity) - (b.distance || Infinity));
+}
 
 const Live = () => {
     const [liveEstablishments, setLiveEstablishments] = useState<EstablishmentType[]>([]);
@@ -20,65 +56,6 @@ const Live = () => {
     const [category, setCategory] = useState<string>('All');
     const [loading, setLoading] = useState<boolean>(false); // Loading state for distance calculation
     const [initialLoading, setInitialLoading] = useState<boolean>(true); // Loading state for initial data fetch
-
-    // Fetch establishments from Firestore
-    const fetchEstablishments = async (): Promise<EstablishmentType[]> => {
-        try {
-            const establishmentsCollection = collection(db, 'establishments');
-            const establishmentsSnapshot = await getDocs(establishmentsCollection);
-            const establishmentsList = establishmentsSnapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data(),
-            })) as EstablishmentType[];
-            return establishmentsList;
-        } catch (error) {
-            console.error("Error fetching establishments from Firestore:", error);
-            Alert.alert("Error", "Failed to fetch establishments. Please try again later.");
-            return [];
-        }
-    };
-
-    // Automatically sort by distance after fetching establishments and getting user location
-    const fetchAndSortEstablishmentsByDistance = async () => {
-        setLoading(true); // Show loading indicator
-        try {
-            const [location, establishments] = await Promise.all([
-                getCurrentPositionOrFallback(),
-                fetchEstablishments(),
-            ]);
-            if (!location) {
-                Alert.alert(
-                    "Location unavailable",
-                    "Allow location access for Saveory and turn on Location in system settings to sort by distance."
-                );
-                setLoading(false);
-                return;
-            }
-            const userLatitude = location.coords.latitude;
-            const userLongitude = location.coords.longitude;
-            const sortedEstablishments = establishments
-                .map(establishment => {
-                    const latitude = typeof establishment.latitude === 'string' ? parseFloat(establishment.latitude) : establishment.latitude;
-                    const longitude = typeof establishment.longitude === 'string' ? parseFloat(establishment.longitude) : establishment.longitude;
-
-                    if (isNaN(latitude) || isNaN(longitude)) {
-                        console.warn(`Invalid coordinates for establishment ${establishment.id}: lat=${establishment.latitude}, lon=${establishment.longitude}`);
-                        return { ...establishment, distance: Infinity }; // Assign a large distance if invalid
-                    }
-
-                    const distance = distanceKm(userLatitude, userLongitude, latitude, longitude);
-                    return { ...establishment, distance };
-                })
-                .sort((a, b) => (a.distance || Infinity) - (b.distance || Infinity));
-
-            setEstablishmentsWithDistance(sortedEstablishments);
-        } catch (error) {
-            console.error("Error sorting by distance:", error);
-            Alert.alert("Error", "Failed to sort establishments by distance.");
-        } finally {
-            setLoading(false); // Hide loading indicator
-        }
-    };
 
     // Filter by selected category + deals active right now (Chicago time)
     const filterActiveDeals = useCallback((establishments: EstablishmentType[], now: moment.Moment) => {
@@ -115,12 +92,38 @@ const Live = () => {
         setLiveEstablishments(activeDeals);
     }, [category]);
 
-    // Load locations once; distance sort does not depend on category.
+    // Cache-first load: show AsyncStorage immediately, then refresh from Firestore.
     useEffect(() => {
         const initialize = async () => {
             setInitialLoading(true);
-            await fetchAndSortEstablishmentsByDistance();
-            setInitialLoading(false);
+            setLoading(true);
+            try {
+                const [location, cached] = await Promise.all([
+                    getCurrentPositionOrFallback(),
+                    readEstablishmentsCache(),
+                ]);
+
+                if (cached?.establishments?.length) {
+                    setEstablishmentsWithDistance(sortEstablishmentsByLocation(cached.establishments, location));
+                    setInitialLoading(false);
+                }
+
+                try {
+                    const fresh = await fetchEstablishmentsFromFirestore();
+                    await persistEstablishmentsCacheIfChanged(cached, fresh);
+                    setEstablishmentsWithDistance(sortEstablishmentsByLocation(fresh.establishments, location));
+                } catch (error) {
+                    console.error('Error fetching establishments from Firestore:', error);
+                    if (!cached?.establishments?.length) {
+                        Alert.alert('Error', 'Failed to fetch establishments. Please try again later.');
+                    }
+                }
+            } catch (error) {
+                console.error('Error initializing Live tab:', error);
+            } finally {
+                setInitialLoading(false);
+                setLoading(false);
+            }
         };
 
         initialize();

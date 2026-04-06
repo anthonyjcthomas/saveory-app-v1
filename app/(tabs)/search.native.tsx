@@ -19,8 +19,12 @@ import { TabHeaderLogo } from '@/components/TabHeaderLogo';
 import { SettingsHeaderButton } from '@/components/SettingsHeaderButton';
 import { HEADING_HERO_TEXT, SCREEN_BACKGROUND } from '@/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
-import { query, collection, getDocs } from 'firebase/firestore';
-import { db } from '../../firebaseConfig.js';
+import {
+    readEstablishmentsCache,
+    fetchEstablishmentsFromFirestore,
+    persistEstablishmentsCacheIfChanged,
+    toNativeMapEstablishments,
+} from '@/lib/establishmentsRepository';
 import { requestTrackingPermissionsAsync } from '@/lib/trackingTransparency';
 import { fetchDrivingRoute } from '@/lib/directionsRoute';
 import { getCurrentPositionOrFallback } from '@/lib/location';
@@ -41,34 +45,6 @@ type MapEstablishment = {
 
 function hasValidMarkerImage(uri: string | undefined): boolean {
     return !!uri?.trim() && /^https?:\/\//i.test(uri.trim());
-}
-
-function isValidCoordinate(lat: number, lng: number): boolean {
-    return Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
-}
-
-async function loadEstablishmentsFromFirestore(): Promise<MapEstablishment[]> {
-    const establishmentsRef = collection(db, 'establishments');
-    const querySnapshot = await getDocs(query(establishmentsRef));
-    const list: MapEstablishment[] = [];
-    for (const docSnap of querySnapshot.docs) {
-        const d = docSnap.data();
-        const lat = parseFloat(String(d.latitude));
-        const lng = parseFloat(String(d.longitude));
-        if (!isValidCoordinate(lat, lng)) {
-            console.warn(`Map: skip establishment ${docSnap.id} — invalid lat/lng`);
-            continue;
-        }
-        list.push({
-            id: docSnap.id,
-            name: String(d.name ?? ''),
-            image: String(d.image ?? ''),
-            location: String(d.location ?? ''),
-            cuisine: String(d.cuisine ?? ''),
-            coordinates: { latitude: lat, longitude: lng },
-        });
-    }
-    return list;
 }
 
 const SearchPage = () => {
@@ -104,15 +80,21 @@ const SearchPage = () => {
         (async () => {
             await askForTrackingPermission();
             try {
-                const [location, establishmentsArray] = await Promise.all([
+                const [location, cached] = await Promise.all([
                     getCurrentPositionOrFallback(),
-                    loadEstablishmentsFromFirestore(),
+                    readEstablishmentsCache(),
                 ]);
                 if (cancelled) return;
                 if (location) {
                     setCurrentLocation(location.coords);
                 }
-                setEstablishments(establishmentsArray);
+                if (cached?.establishments?.length) {
+                    setEstablishments(toNativeMapEstablishments(cached.establishments));
+                }
+                const fresh = await fetchEstablishmentsFromFirestore();
+                await persistEstablishmentsCacheIfChanged(cached, fresh);
+                if (cancelled) return;
+                setEstablishments(toNativeMapEstablishments(fresh.establishments));
             } catch (e) {
                 console.error('Error loading map data:', e);
             } finally {
@@ -314,10 +296,25 @@ const SearchPage = () => {
 
     if (loading) {
         return (
-            <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#264117" />
-                <Text style={styles.loadingText}>Loading map and establishments...</Text>
-            </View>
+            <>
+                <Stack.Screen
+                    options={{
+                        headerTransparent: false,
+                        headerShadowVisible: false,
+                        headerTitleAlign: 'center',
+                        headerStyle: {
+                            backgroundColor: SCREEN_BACKGROUND,
+                        },
+                        headerTintColor: '#264117',
+                        headerTitle: () => <TabHeaderLogo />,
+                        headerRight: () => <SettingsHeaderButton />,
+                    }}
+                />
+                <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="large" color="#264117" />
+                    <Text style={styles.loadingText}>Loading map and establishments...</Text>
+                </View>
+            </>
         );
     }
 
@@ -695,8 +692,9 @@ const styles = StyleSheet.create({
         backgroundColor: '#f5f5f5',
     },
     loadingText: {
-        marginTop: 10,
-        fontSize: 16,
+        marginTop: 15,
+        fontSize: 18,
+        fontWeight: '600',
         color: '#264117',
     },
 });

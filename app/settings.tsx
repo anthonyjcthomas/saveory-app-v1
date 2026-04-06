@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
+import { useBusinessOwner } from '@/lib/businessOwner';
 import {
   signOut,
   EmailAuthProvider,
@@ -26,6 +27,7 @@ import { SCREEN_BACKGROUND, BRAND_GREEN } from '@/constants/theme';
 export default function SettingsScreen() {
   const router = useRouter();
   const user = auth?.currentUser ?? null;
+  const { isOwner, loading: ownerLoading } = useBusinessOwner();
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -44,6 +46,26 @@ export default function SettingsScreen() {
         'Sign in with an email account to send a report, or email saveoryapp@gmail.com from another app.'
       );
     }
+  };
+
+  /** Opens email to you — include UID so you can create `businessOwners/{uid}` in Firestore. */
+  const handleRequestBusinessListing = () => {
+    const support = 'saveoryapp@gmail.com';
+    const uid = user?.uid ?? '';
+    const accountEmail = user?.email ?? '(guest — no email)';
+    const subject = encodeURIComponent('Saveory — request business listing');
+    const body = encodeURIComponent(
+      "I'd like to manage my restaurant's deals on Saveory.\n\n" +
+        `Account email: ${accountEmail}\n` +
+        `Firebase UID (paste this when creating businessOwners doc): ${uid || '(sign in first)'}\n\n` +
+        'Business / venue name:\n' +
+        'Address:\n' +
+        'Phone:\n' +
+        'Notes:\n'
+    );
+    Linking.openURL(`mailto:${support}?subject=${subject}&body=${body}`).catch(() =>
+      Alert.alert('Error', 'Could not open your email app.')
+    );
   };
 
   const handleSignOut = () => {
@@ -135,6 +157,33 @@ export default function SettingsScreen() {
           contentContainerStyle={styles.scroll}
           keyboardShouldPersistTaps="handled"
         >
+          {!ownerLoading ? (
+            <>
+              <Text style={[styles.sectionLabel, styles.sectionFirst]}>Business</Text>
+              {isOwner ? (
+                <TouchableOpacity
+                  style={styles.rowButton}
+                  onPress={() => router.push('/owner')}
+                >
+                  <Text style={styles.rowButtonText}>Business portal</Text>
+                </TouchableOpacity>
+              ) : (
+                <>
+                  <Text style={styles.businessExplainer}>
+                    (1) Tap below to email us. (2) We add your venue in Firebase. (3) Business portal unlocks
+                    here for your account.
+                  </Text>
+                  <TouchableOpacity style={styles.rowButton} onPress={handleRequestBusinessListing}>
+                    <Text style={styles.rowButtonText}>Request business listing</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.businessHint}>
+                    Use the Firebase UID in the email so we can link the right login.
+                  </Text>
+                </>
+              )}
+            </>
+          ) : null}
+
           <Text style={styles.sectionLabel}>Support</Text>
           <TouchableOpacity style={styles.rowButton} onPress={handleReport}>
             <Text style={styles.rowButtonText}>Report a problem</Text>
@@ -227,6 +276,9 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     marginTop: 16,
   },
+  sectionFirst: {
+    marginTop: 0,
+  },
   rowButton: {
     backgroundColor: '#fff',
     paddingVertical: 16,
@@ -296,5 +348,17 @@ const styles = StyleSheet.create({
     color: BRAND_GREEN,
     fontSize: 16,
     fontWeight: '700',
+  },
+  businessExplainer: {
+    fontSize: 14,
+    color: '#555',
+    lineHeight: 20,
+    marginBottom: 12,
+  },
+  businessHint: {
+    fontSize: 13,
+    color: '#666',
+    lineHeight: 18,
+    marginTop: 10,
   },
 });
