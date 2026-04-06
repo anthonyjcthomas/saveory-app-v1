@@ -2,7 +2,7 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, initializeAuth, getReactNativePersistence } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getAnalytics, logEvent, isSupported } from 'firebase/analytics';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 
 const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
@@ -16,18 +16,25 @@ const firebaseConfig = {
 // Initialize Firebase app (guard against double-init in HMR / dev)
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
-// Auth: always initialize with AsyncStorage persistence so login survives app restarts.
-// The catch handles the "auth/already-initialized" error thrown on HMR hot-reloads
-// where the module re-executes but the Auth instance already exists.
+/**
+ * Auth persistence:
+ * - Web + static export (Vercel / Node): use default browser persistence via getAuth — never
+ *   import AsyncStorage at load time (RN persistence breaks expo export SSR).
+ * - iOS/Android: AsyncStorage so sessions survive app restarts.
+ */
 /** @type {import('firebase/auth').Auth} */
 let auth;
-try {
-  auth = initializeAuth(app, {
-    persistence: getReactNativePersistence(AsyncStorage),
-  });
-} catch {
-  // Already initialized — grab the existing instance
+if (Platform.OS === 'web') {
   auth = getAuth(app);
+} else {
+  const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+  try {
+    auth = initializeAuth(app, {
+      persistence: getReactNativePersistence(AsyncStorage),
+    });
+  } catch {
+    auth = getAuth(app);
+  }
 }
 
 const db = getFirestore(app);
@@ -35,9 +42,11 @@ const db = getFirestore(app);
 // Analytics — only available in environments that support it (native, web).
 // Initialized asynchronously; trackEvent() safely no-ops if not yet ready.
 let _analytics = null;
-isSupported().then((supported) => {
-  if (supported) _analytics = getAnalytics(app);
-}).catch(() => {});
+isSupported()
+  .then((supported) => {
+    if (supported) _analytics = getAnalytics(app);
+  })
+  .catch(() => {});
 
 /**
  * Log a Firebase Analytics event. Preserves the same event names that were
