@@ -28,20 +28,34 @@ export default function OwnerPortalScreen() {
         );
     }
 
-    return (
-            <View style={styles.container}>
-                <Text style={HEADING_HERO_TEXT}>Your listing</Text>
-                <Text style={styles.estName}>{profile.establishmentId}</Text>
-                <Text style={styles.hint}>Update happy hours, photos, and details visible in the app.</Text>
+    const ids = profile.establishmentIds;
 
+    return (
+        <View style={styles.container}>
+            <Text style={HEADING_HERO_TEXT}>{ids.length > 1 ? 'Your listings' : 'Your listing'}</Text>
+            <Text style={styles.hint}>
+                Update happy hours, photos, and details for each venue below.
+            </Text>
+
+            {ids.map((estId) => (
                 <TouchableOpacity
-                    style={styles.primary}
-                    onPress={() => router.push('/owner/edit')}
+                    key={estId}
+                    style={styles.venueRow}
+                    onPress={() =>
+                        router.push({
+                            pathname: '/owner/edit',
+                            params: { establishmentId: estId },
+                        })
+                    }
                     activeOpacity={0.88}
                 >
-                    <Text style={styles.primaryText}>Edit deals &amp; details</Text>
+                    <Text style={styles.venueName} numberOfLines={2}>
+                        {estId}
+                    </Text>
+                    <Text style={styles.venueCta}>Edit deals &amp; details →</Text>
                 </TouchableOpacity>
-            </View>
+            ))}
+        </View>
     );
 }
 
@@ -68,27 +82,29 @@ const styles = StyleSheet.create({
         color: '#444',
         lineHeight: 22,
     },
-    estName: {
-        fontSize: 18,
-        fontWeight: '600',
-        color: '#111',
-        marginBottom: 8,
-    },
     hint: {
         fontSize: 15,
         color: '#555',
-        marginBottom: 24,
+        marginBottom: 16,
         lineHeight: 22,
     },
-    primary: {
-        backgroundColor: BRAND_GREEN,
-        paddingVertical: 16,
+    venueRow: {
+        backgroundColor: '#fff',
+        borderWidth: 1,
+        borderColor: '#e0e0e0',
         borderRadius: 12,
-        alignItems: 'center',
+        padding: 16,
+        marginBottom: 12,
     },
-    primaryText: {
-        color: '#fff',
-        fontSize: 17,
+    venueName: {
+        fontSize: 18,
         fontWeight: '700',
+        color: '#111',
+        marginBottom: 8,
+    },
+    venueCta: {
+        fontSize: 15,
+        fontWeight: '600',
+        color: BRAND_GREEN,
     },
 });

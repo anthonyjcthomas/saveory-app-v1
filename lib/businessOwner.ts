@@ -3,12 +3,27 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { auth, db, isFirebaseReady } from '../firebaseConfig.js';
 
 /**
- * Maps a Firebase Auth UID to one Firestore `establishments` document ID.
- * Create `businessOwners/{uid}` in the console with field `establishmentId` = exact doc id (e.g. restaurant name).
+ * Firestore `businessOwners/{uid}`:
+ * - Preferred: `establishmentIds` (array of `establishments` document IDs, e.g. venue names).
+ * - Legacy: single `establishmentId` (string) — still supported in app and rules.
  */
 export type BusinessOwnerProfile = {
-    establishmentId: string;
+    establishmentIds: string[];
 };
+
+function normalizeOwnerEstablishmentIds(data: Record<string, unknown> | undefined): string[] {
+    if (!data) return [];
+    const multi = data.establishmentIds;
+    if (Array.isArray(multi)) {
+        const ids = multi.map((x) => String(x).trim()).filter(Boolean);
+        return [...new Set(ids)];
+    }
+    const single = data.establishmentId;
+    if (typeof single === 'string' && single.trim()) {
+        return [single.trim()];
+    }
+    return [];
+}
 
 export function useBusinessOwner(): {
     profile: BusinessOwnerProfile | null;
@@ -39,9 +54,8 @@ export function useBusinessOwner(): {
                     setLoading(false);
                     return;
                 }
-                const data = snap.data();
-                const establishmentId = String(data?.establishmentId ?? '').trim();
-                setProfile(establishmentId ? { establishmentId } : null);
+                const ids = normalizeOwnerEstablishmentIds(snap.data() as Record<string, unknown>);
+                setProfile(ids.length ? { establishmentIds: ids } : null);
                 setLoading(false);
             },
             (err) => {
@@ -66,6 +80,6 @@ export function useBusinessOwner(): {
     return {
         profile,
         loading,
-        isOwner: !!profile?.establishmentId,
+        isOwner: (profile?.establishmentIds?.length ?? 0) > 0,
     };
 }

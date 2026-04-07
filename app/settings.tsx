@@ -57,8 +57,9 @@ export default function SettingsScreen() {
     const body = encodeURIComponent(
       "I'd like to manage my restaurant's deals on Saveory.\n\n" +
         `Account email: ${accountEmail}\n` +
-        `Firebase UID (paste this when creating businessOwners doc): ${uid || '(sign in first)'}\n\n` +
-        'Business / venue name:\n' +
+        `Firebase UID (document ID for businessOwners): ${uid || '(sign in first)'}\n` +
+        'Field: establishmentId = one venue, OR establishmentIds = array of venue doc IDs (e.g. ["Kollege Klub", "Other Place"]).\n\n' +
+        'Business / venue name(s):\n' +
         'Address:\n' +
         'Phone:\n' +
         'Notes:\n'

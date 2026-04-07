@@ -9,10 +9,15 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // Single-venue legacy: `establishmentId` (string). Multi-venue: `establishmentIds` (array of strings).
     function isOwnerOfEstablishment(estId) {
+      let owner = get(/databases/$(database)/documents/businessOwners/$(request.auth.uid)).data;
       return isSignedIn() &&
         exists(/databases/$(database)/documents/businessOwners/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/businessOwners/$(request.auth.uid)).data.establishmentId == estId;
+        (
+          owner.establishmentId == estId ||
+          (owner.establishmentIds is list && owner.establishmentIds.hasAny([estId]))
+        );
     }
 
     // Who may act as a business owner (mapping only; create via Admin / console).

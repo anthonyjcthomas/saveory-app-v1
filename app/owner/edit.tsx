@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -9,15 +9,19 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { db, isFirebaseReady } from '@/firebaseConfig.js';
 import { useBusinessOwner } from '@/lib/businessOwner';
 import { clearEstablishmentsCache } from '@/lib/establishmentsRepository';
 import type { EstablishmentType, HappyHourDeal } from '@/types/establishmentType';
 import { SCREEN_BACKGROUND, BRAND_GREEN } from '@/constants/theme';
+import dealCategories from '@/data/dealCategories';
 
 const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+/** Same labels as the Live Deals filters; "All" is not a venue tag. */
+const CATEGORY_OPTIONS = dealCategories.filter((c) => c.title !== 'All').map((c) => c.title);
 
 function computeDotwFromDeals(deals: HappyHourDeal[]): string[] {
     const s = new Set<string>();
@@ -29,18 +33,18 @@ function computeDotwFromDeals(deals: HappyHourDeal[]): string[] {
     return WEEKDAYS.filter((d) => s.has(d));
 }
 
-function parseCommaList(s: string): string[] {
-    return s
-        .split(',')
-        .map((x) => x.trim())
-        .filter(Boolean);
+function toggleDayInList(current: string[], day: string): string[] {
+    const set = new Set(current);
+    if (set.has(day)) set.delete(day);
+    else set.add(day);
+    return WEEKDAYS.filter((d) => set.has(d));
 }
 
-function normalizeDayToken(raw: string): string {
-    const t = raw.trim();
-    if (!t) return '';
-    const m = WEEKDAYS.find((d) => d.toLowerCase() === t.toLowerCase());
-    return m ?? t;
+function toggleCategoryInList(current: string[], cat: string): string[] {
+    const set = new Set(current);
+    if (set.has(cat)) set.delete(cat);
+    else set.add(cat);
+    return CATEGORY_OPTIONS.filter((c) => set.has(c));
 }
 
 function emptyDeal(): HappyHourDeal {
@@ -56,7 +60,30 @@ function emptyDeal(): HappyHourDeal {
 export default function OwnerEditScreen() {
     const router = useRouter();
     const { profile, loading: ownerLoading, isOwner } = useBusinessOwner();
-    const establishmentId = profile?.establishmentId ?? '';
+    const params = useLocalSearchParams<{ establishmentId?: string | string[] }>();
+    const paramRaw = params.establishmentId;
+    const paramId = Array.isArray(paramRaw) ? paramRaw[0] : paramRaw;
+    const decodedParam = typeof paramId === 'string' ? paramId : '';
+
+    const allowedIds = profile?.establishmentIds ?? [];
+    const establishmentId = useMemo(() => {
+        if (decodedParam && allowedIds.includes(decodedParam)) {
+            return decodedParam;
+        }
+        if (!decodedParam && allowedIds.length === 1) {
+            return allowedIds[0];
+        }
+        return '';
+    }, [decodedParam, allowedIds]);
+
+    const needsVenueFromPortal =
+        !ownerLoading && isOwner && allowedIds.length > 1 && !decodedParam;
+    const invalidVenueParam =
+        !ownerLoading &&
+        isOwner &&
+        !!decodedParam &&
+        allowedIds.length > 0 &&
+        !allowedIds.includes(decodedParam);
 
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -67,7 +94,7 @@ export default function OwnerEditScreen() {
     const [latitude, setLatitude] = useState('');
     const [longitude, setLongitude] = useState('');
     const [rating, setRating] = useState('');
-    const [categoryStr, setCategoryStr] = useState('');
+    const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
     const [deals, setDeals] = useState<HappyHourDeal[]>([]);
 
     const load = useCallback(async () => {
@@ -96,7 +123,8 @@ export default function OwnerEditScreen() {
             setLatitude(String(row.latitude ?? ''));
             setLongitude(String(row.longitude ?? ''));
             setRating(String(row.rating ?? ''));
-            setCategoryStr(Array.isArray(row.category) ? row.category.join(', ') : '');
+            const cats = Array.isArray(row.category) ? row.category.map(String) : [];
+            setSelectedCategories(CATEGORY_OPTIONS.filter((c) => cats.includes(c)));
             const hh = row.happy_hour_deals;
             setDeals(Array.isArray(hh) && hh.length > 0 ? hh.map((d) => ({ ...d })) : [emptyDeal()]);
         } catch (e) {
@@ -139,7 +167,7 @@ export default function OwnerEditScreen() {
             Alert.alert('Coordinates', 'Enter valid latitude and longitude numbers.');
             return;
         }
-        const category = parseCommaList(categoryStr);
+        const category = selectedCategories;
         const normalizedDeals: HappyHourDeal[] = deals.map((d) => ({
             day: d.day.trim(),
             details: d.details.trim(),
@@ -174,7 +202,7 @@ export default function OwnerEditScreen() {
         }
     };
 
-    if (ownerLoading || loading) {
+    if (ownerLoading) {
         return (
             <View style={styles.centered}>
                 <ActivityIndicator size="large" color={BRAND_GREEN} />
@@ -186,6 +214,47 @@ export default function OwnerEditScreen() {
         return (
             <View style={styles.container}>
                 <Text style={styles.warn}>You do not have access to edit a listing.</Text>
+            </View>
+        );
+    }
+
+    if (needsVenueFromPortal) {
+        return (
+            <View style={styles.container}>
+                <Text style={styles.warn}>Choose a venue from Business portal to edit.</Text>
+                <TouchableOpacity style={styles.backLink} onPress={() => router.replace('/owner')}>
+                    <Text style={styles.backLinkText}>Back to Business portal</Text>
+                </TouchableOpacity>
+            </View>
+        );
+    }
+
+    if (invalidVenueParam) {
+        return (
+            <View style={styles.container}>
+                <Text style={styles.warn}>This listing is not linked to your account.</Text>
+                <TouchableOpacity style={styles.backLink} onPress={() => router.replace('/owner')}>
+                    <Text style={styles.backLinkText}>Back to Business portal</Text>
+                </TouchableOpacity>
+            </View>
+        );
+    }
+
+    if (loading) {
+        return (
+            <View style={styles.centered}>
+                <ActivityIndicator size="large" color={BRAND_GREEN} />
+            </View>
+        );
+    }
+
+    if (!establishmentId) {
+        return (
+            <View style={styles.container}>
+                <Text style={styles.warn}>Could not open this listing.</Text>
+                <TouchableOpacity style={styles.backLink} onPress={() => router.replace('/owner')}>
+                    <Text style={styles.backLinkText}>Back to Business portal</Text>
+                </TouchableOpacity>
             </View>
         );
     }
@@ -240,17 +309,27 @@ export default function OwnerEditScreen() {
             <Text style={styles.label}>Rating (display)</Text>
             <TextInput style={styles.input} value={rating} onChangeText={setRating} placeholderTextColor="#888" />
 
-            <Text style={styles.label}>Categories (comma-separated)</Text>
-            <TextInput
-                style={styles.input}
-                value={categoryStr}
-                onChangeText={setCategoryStr}
-                placeholder="Drinks, Meals"
-                placeholderTextColor="#888"
-            />
+            <Text style={styles.label}>Categories</Text>
+            <View style={styles.chipWrap}>
+                {CATEGORY_OPTIONS.map((cat) => {
+                    const on = selectedCategories.includes(cat);
+                    return (
+                        <TouchableOpacity
+                            key={cat}
+                            style={[styles.chip, on && styles.chipOn]}
+                            onPress={() =>
+                                setSelectedCategories(toggleCategoryInList(selectedCategories, cat))
+                            }
+                            activeOpacity={0.85}
+                        >
+                            <Text style={[styles.chipLabel, on && styles.chipLabelOn]}>{cat}</Text>
+                        </TouchableOpacity>
+                    );
+                })}
+            </View>
 
             <Text style={styles.section}>Happy hour deals</Text>
-            <Text style={styles.helper}>Times use 24h format (e.g. 16:00–18:00). Days: full names, comma-separated.</Text>
+            <Text style={styles.helper}>Times use 24h format (e.g. 16:00). Tap days this deal runs.</Text>
 
             {deals.map((deal, index) => (
                 <View key={index} style={styles.dealCard}>
@@ -292,18 +371,29 @@ export default function OwnerEditScreen() {
                             />
                         </View>
                     </View>
-                    <Text style={styles.label}>Active days (comma-separated)</Text>
-                    <TextInput
-                        style={styles.input}
-                        value={deal.deal_list.join(', ')}
-                        onChangeText={(t) =>
-                            updateDeal(index, {
-                                deal_list: parseCommaList(t).map(normalizeDayToken).filter(Boolean),
-                            })
-                        }
-                        placeholder="Monday, Tuesday, Wednesday"
-                        placeholderTextColor="#888"
-                    />
+                    <Text style={styles.label}>Active days</Text>
+                    <View style={styles.chipWrap}>
+                        {WEEKDAYS.map((day) => {
+                            const on = deal.deal_list.includes(day);
+                            const short = day.slice(0, 3);
+                            return (
+                                <TouchableOpacity
+                                    key={day}
+                                    style={[styles.dayChip, on && styles.chipOn]}
+                                    onPress={() =>
+                                        updateDeal(index, {
+                                            deal_list: toggleDayInList(deal.deal_list, day),
+                                        })
+                                    }
+                                    activeOpacity={0.85}
+                                >
+                                    <Text style={[styles.dayChipLabel, on && styles.chipLabelOn]}>
+                                        {short}
+                                    </Text>
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </View>
                     {deals.length > 1 ? (
                         <TouchableOpacity onPress={() => removeDeal(index)} style={styles.removeBtn}>
                             <Text style={styles.removeText}>Remove deal</Text>
@@ -354,6 +444,17 @@ const styles = StyleSheet.create({
     warn: {
         fontSize: 16,
         color: '#444',
+        marginBottom: 16,
+        lineHeight: 22,
+    },
+    backLink: {
+        alignSelf: 'flex-start',
+        paddingVertical: 12,
+    },
+    backLinkText: {
+        fontSize: 16,
+        fontWeight: '700',
+        color: BRAND_GREEN,
     },
     label: {
         fontSize: 13,
@@ -442,5 +543,45 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontSize: 17,
         fontWeight: '700',
+    },
+    chipWrap: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 8,
+    },
+    chip: {
+        paddingVertical: 10,
+        paddingHorizontal: 14,
+        borderRadius: 20,
+        backgroundColor: '#fff',
+        borderWidth: 1,
+        borderColor: '#ccc',
+    },
+    chipOn: {
+        backgroundColor: BRAND_GREEN,
+        borderColor: BRAND_GREEN,
+    },
+    chipLabel: {
+        fontSize: 15,
+        fontWeight: '600',
+        color: BRAND_GREEN,
+    },
+    chipLabelOn: {
+        color: '#fff',
+    },
+    dayChip: {
+        paddingVertical: 10,
+        paddingHorizontal: 12,
+        minWidth: 44,
+        alignItems: 'center',
+        borderRadius: 10,
+        backgroundColor: '#fff',
+        borderWidth: 1,
+        borderColor: '#ccc',
+    },
+    dayChipLabel: {
+        fontSize: 14,
+        fontWeight: '700',
+        color: BRAND_GREEN,
     },
 });
