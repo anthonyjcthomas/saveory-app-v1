@@ -15,10 +15,14 @@ import {
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { db } from '@/firebaseConfig.js';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { app, auth, db, isFirebaseReady } from '@/firebaseConfig.js';
 import { useBusinessOwner } from '@/lib/businessOwner';
 import {
-  registerForPushNotificationsAsync,
+  ensureNotificationPermission,
+  fetchExpoPushTokenOrThrow,
+  saveDealAlertsIntent,
+  savePushTokenError,
   savePushTokenForUser,
   clearPushTokenForUser,
 } from '@/lib/pushNotifications';
@@ -29,13 +33,12 @@ import {
   updatePassword,
   sendPasswordResetEmail,
 } from 'firebase/auth';
-import { auth } from '@/firebaseConfig.js';
 import { SCREEN_BACKGROUND, BRAND_GREEN } from '@/constants/theme';
 
 export default function SettingsScreen() {
   const router = useRouter();
   const user = auth?.currentUser ?? null;
-  const { isOwner, loading: ownerLoading } = useBusinessOwner();
+  const { isOwner, loading: ownerLoading, profile } = useBusinessOwner();
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -43,6 +46,11 @@ export default function SettingsScreen() {
   const [saving, setSaving] = useState(false);
   const [dealAlertsOn, setDealAlertsOn] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
+  const [manualPushAdmin, setManualPushAdmin] = useState(false);
+  const [broadcastTitle, setBroadcastTitle] = useState('');
+  const [broadcastBody, setBroadcastBody] = useState('');
+  const [broadcastEstId, setBroadcastEstId] = useState('');
+  const [broadcastSending, setBroadcastSending] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -71,6 +79,77 @@ export default function SettingsScreen() {
     };
   }, [user?.uid, user?.isAnonymous]);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!user?.uid || user.isAnonymous || !db) {
+        setManualPushAdmin(false);
+        return;
+      }
+      try {
+        const snap = await getDoc(doc(db, 'adminPushSenders', user.uid));
+        const ok = snap.exists() && snap.data()?.active !== false;
+        if (!cancelled) setManualPushAdmin(ok);
+      } catch {
+        if (!cancelled) setManualPushAdmin(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid, user?.isAnonymous]);
+
+  const canSendBroadcast = manualPushAdmin || isOwner;
+
+  const handleSendManualBroadcast = async () => {
+    if (!isFirebaseReady() || !app) {
+      Alert.alert('Error', 'Firebase is not available.');
+      return;
+    }
+    const title = broadcastTitle.trim();
+    const body = broadcastBody.trim();
+    if (!title || !body) {
+      Alert.alert('Required', 'Enter a title and message.');
+      return;
+    }
+    const establishmentId = broadcastEstId.trim();
+    if (
+      isOwner &&
+      !manualPushAdmin &&
+      establishmentId &&
+      profile?.establishmentIds &&
+      !profile.establishmentIds.includes(establishmentId)
+    ) {
+      Alert.alert(
+        'Invalid listing ID',
+        `Use one of your venue document IDs: ${profile.establishmentIds.join(', ')}`
+      );
+      return;
+    }
+    setBroadcastSending(true);
+    try {
+      const sendBroadcast = httpsCallable(getFunctions(app, 'us-central1'), 'sendManualBroadcast');
+      const result = await sendBroadcast({
+        title,
+        body,
+        ...(establishmentId ? { establishmentId } : {}),
+      });
+      const data = result.data as { recipientCount?: number; message?: string };
+      Alert.alert(
+        'Broadcast sent',
+        data.message ?? `${data.recipientCount ?? 0} device(s) with deal alerts enabled.`
+      );
+      setBroadcastTitle('');
+      setBroadcastBody('');
+      setBroadcastEstId('');
+    } catch (e: unknown) {
+      const err = e as { message?: string };
+      Alert.alert('Send failed', err.message ?? 'Could not send broadcast.');
+    } finally {
+      setBroadcastSending(false);
+    }
+  };
+
   const handleDealAlertsToggle = async (value: boolean) => {
     if (!user?.uid || user.isAnonymous) {
       Alert.alert('Sign in', 'Use an email account to receive deal alerts.');
@@ -83,11 +162,26 @@ export default function SettingsScreen() {
     setPushBusy(true);
     try {
       if (value) {
-        const token = await registerForPushNotificationsAsync();
-        if (!token) {
+        const granted = await ensureNotificationPermission();
+        if (!granted) {
           Alert.alert(
             'Notifications off',
             'Enable notifications for Saveory in system settings to get deal alerts.'
+          );
+          setDealAlertsOn(false);
+          return;
+        }
+        // Persist opt-in immediately so Firestore shows `dealAlertsOptIn` even if token fetch fails.
+        await saveDealAlertsIntent(user.uid);
+        let token: string;
+        try {
+          token = await fetchExpoPushTokenOrThrow();
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          await savePushTokenError(user.uid, msg);
+          Alert.alert(
+            'Push token failed',
+            `${msg}\n\nCheck that you are on a physical device with Expo Go updated. If this persists, try a development or production build (not Expo Go).`
           );
           setDealAlertsOn(false);
           return;
@@ -279,6 +373,57 @@ export default function SettingsScreen() {
                   />
                 )}
               </View>
+            </>
+          ) : null}
+
+          {canSendBroadcast ? (
+            <>
+              <Text style={styles.sectionLabel}>Send announcement</Text>
+              <Text style={styles.adminBroadcastHint}>
+                {manualPushAdmin
+                  ? 'Sends a push to everyone who enabled Deal alerts and has a device token. Optional establishment ID opens that venue when tapped.'
+                  : 'Sends a push to all users who enabled Deal alerts. If you add an establishment ID, it must be one of your listings (same ID as in Firestore / Business portal) so the app can open the right venue.'}
+                {isOwner && profile?.establishmentIds?.length ? (
+                  <Text style={styles.adminBroadcastVenueIds}>
+                    {'\n\nYour listing ID(s): '}
+                    {profile.establishmentIds.join(', ')}
+                  </Text>
+                ) : null}
+              </Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Notification title"
+                placeholderTextColor="#888"
+                value={broadcastTitle}
+                onChangeText={setBroadcastTitle}
+              />
+              <TextInput
+                style={[styles.input, styles.multilineInput]}
+                placeholder="Message"
+                placeholderTextColor="#888"
+                value={broadcastBody}
+                onChangeText={setBroadcastBody}
+                multiline
+              />
+              <TextInput
+                style={styles.input}
+                placeholder="Establishment ID (optional, for deep link)"
+                placeholderTextColor="#888"
+                value={broadcastEstId}
+                onChangeText={setBroadcastEstId}
+                autoCapitalize="none"
+              />
+              <TouchableOpacity
+                style={[styles.primaryButton, broadcastSending ? styles.disabled : null]}
+                onPress={handleSendManualBroadcast}
+                disabled={broadcastSending}
+              >
+                {broadcastSending ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.primaryButtonText}>Send push to opted-in users</Text>
+                )}
+              </TouchableOpacity>
             </>
           ) : null}
 
@@ -485,5 +630,20 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 4,
     lineHeight: 18,
+  },
+  adminBroadcastHint: {
+    fontSize: 13,
+    color: '#555',
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  adminBroadcastVenueIds: {
+    fontSize: 13,
+    color: '#333',
+    fontWeight: '600',
+  },
+  multilineInput: {
+    minHeight: 88,
+    textAlignVertical: 'top',
   },
 });

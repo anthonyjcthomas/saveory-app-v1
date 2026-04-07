@@ -26,6 +26,12 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Manual push admins (create via Firebase console). Used by Cloud Function `sendManualBroadcast` only to authorize sends.
+    match /adminPushSenders/{userId} {
+      allow read: if isSignedIn() && request.auth.uid == userId;
+      allow write: if false;
+    }
+
     // Establishments: all signed-in users can read; owners may update their own doc only.
     match /establishments/{estId} {
       allow read: if isSignedIn();
