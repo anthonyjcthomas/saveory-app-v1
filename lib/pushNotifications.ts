@@ -10,6 +10,8 @@ Notifications.setNotificationHandler({
         shouldShowAlert: true,
         shouldPlaySound: true,
         shouldSetBadge: true,
+        shouldShowBanner: true,
+        shouldShowList: true,
     }),
 });
 
@@ -59,6 +61,8 @@ export async function savePushTokenForUser(uid: string, token: string): Promise<
         {
             expoPushToken: token,
             expoPushTokenUpdatedAt: serverTimestamp(),
+            /** Used by Cloud Functions: only opted-in users receive deal alerts. */
+            dealAlertsOptIn: true,
         },
         { merge: true }
     );
@@ -71,6 +75,7 @@ export async function clearPushTokenForUser(uid: string): Promise<void> {
         {
             expoPushToken: deleteField(),
             expoPushTokenUpdatedAt: deleteField(),
+            dealAlertsOptIn: false,
         },
         { merge: true }
     );

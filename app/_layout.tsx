@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { View, ActivityIndicator, Text } from 'react-native';
+import { View, ActivityIndicator, Text, Platform } from 'react-native';
+import * as Notifications from 'expo-notifications';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { ThemeProvider, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -28,6 +29,19 @@ export default function RootLayout() {
     });
     return () => unsubscribe();
   }, []); // intentionally empty — subscribe once
+
+  // Open venue when user taps a deal alert notification.
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
+      const raw = response.notification.request.content.data?.establishmentId;
+      const id = typeof raw === 'string' ? raw : null;
+      if (id && id.length > 0) {
+        router.push(`/Establishments/${encodeURIComponent(id)}`);
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   // Handle navigation separately, only after loading resolves.
   // Only redirect AWAY FROM auth screens when logged in, and TO landing when not logged in.

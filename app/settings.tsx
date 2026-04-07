@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   StyleSheet,
   Text,
@@ -11,9 +11,17 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Switch,
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { db } from '@/firebaseConfig.js';
 import { useBusinessOwner } from '@/lib/businessOwner';
+import {
+  registerForPushNotificationsAsync,
+  savePushTokenForUser,
+  clearPushTokenForUser,
+} from '@/lib/pushNotifications';
 import {
   signOut,
   EmailAuthProvider,
@@ -33,6 +41,71 @@ export default function SettingsScreen() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [saving, setSaving] = useState(false);
+  const [dealAlertsOn, setDealAlertsOn] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!user?.uid || user.isAnonymous || !db) {
+        setDealAlertsOn(false);
+        return;
+      }
+      try {
+        const snap = await getDoc(doc(db, 'users', user.uid));
+        const data = snap.data();
+        const tok = data?.expoPushToken;
+        const optIn = data?.dealAlertsOptIn;
+        const hasToken = typeof tok === 'string' && tok.length > 0;
+        const optedIn = optIn !== false;
+        if (hasToken && optIn === undefined) {
+          await setDoc(doc(db, 'users', user.uid), { dealAlertsOptIn: true }, { merge: true });
+        }
+        if (!cancelled) setDealAlertsOn(hasToken && optedIn);
+      } catch {
+        if (!cancelled) setDealAlertsOn(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.uid, user?.isAnonymous]);
+
+  const handleDealAlertsToggle = async (value: boolean) => {
+    if (!user?.uid || user.isAnonymous) {
+      Alert.alert('Sign in', 'Use an email account to receive deal alerts.');
+      return;
+    }
+    if (Platform.OS === 'web') {
+      Alert.alert('Not available', 'Push alerts are available on the mobile app.');
+      return;
+    }
+    setPushBusy(true);
+    try {
+      if (value) {
+        const token = await registerForPushNotificationsAsync();
+        if (!token) {
+          Alert.alert(
+            'Notifications off',
+            'Enable notifications for Saveory in system settings to get deal alerts.'
+          );
+          setDealAlertsOn(false);
+          return;
+        }
+        await savePushTokenForUser(user.uid, token);
+        setDealAlertsOn(true);
+      } else {
+        await clearPushTokenForUser(user.uid);
+        setDealAlertsOn(false);
+      }
+    } catch (e: unknown) {
+      const err = e as { message?: string };
+      Alert.alert('Error', err.message ?? 'Could not update notification settings.');
+      setDealAlertsOn(!value);
+    } finally {
+      setPushBusy(false);
+    }
+  };
 
   const handleReport = () => {
     if (user?.email) {
@@ -182,6 +255,30 @@ export default function SettingsScreen() {
                   </Text>
                 </>
               )}
+            </>
+          ) : null}
+
+          {Platform.OS !== 'web' ? (
+            <>
+              <Text style={styles.sectionLabel}>Alerts</Text>
+              <View style={styles.switchRow}>
+                <View style={styles.switchTextWrap}>
+                  <Text style={styles.switchTitle}>Deal alerts</Text>
+                  <Text style={styles.switchSubtitle}>
+                    Get notified when venues update happy hour deals (opt in required).
+                  </Text>
+                </View>
+                {pushBusy ? (
+                  <ActivityIndicator color={BRAND_GREEN} />
+                ) : (
+                  <Switch
+                    value={dealAlertsOn}
+                    onValueChange={handleDealAlertsToggle}
+                    trackColor={{ false: '#ccc', true: '#8fbc8f' }}
+                    thumbColor={dealAlertsOn ? BRAND_GREEN : '#f4f3f4'}
+                  />
+                )}
+              </View>
             </>
           ) : null}
 
@@ -361,5 +458,32 @@ const styles = StyleSheet.create({
     color: '#666',
     lineHeight: 18,
     marginTop: 10,
+  },
+  switchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#fff',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    marginBottom: 8,
+  },
+  switchTextWrap: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  switchTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111',
+  },
+  switchSubtitle: {
+    fontSize: 13,
+    color: '#666',
+    marginTop: 4,
+    lineHeight: 18,
   },
 });
